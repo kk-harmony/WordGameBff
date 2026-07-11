@@ -1,0 +1,10 @@
+bin/
+obj/
+.env
+*.user
+.vs/
+.idea/
+.DS_Store
+
+# Podman local demo — built embed copy
+local/embed.js

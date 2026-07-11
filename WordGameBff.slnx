@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WordGameBff.Api/WordGameBff.Api.csproj" />
+    <Project Path="src/WordGameBff.Application/WordGameBff.Application.csproj" />
+    <Project Path="src/WordGameBff.Domain/WordGameBff.Domain.csproj" />
+    <Project Path="src/WordGameBff.Infrastructure/WordGameBff.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WordGameBff.Tests/WordGameBff.Tests.csproj" />
+  </Folder>
+</Solution>

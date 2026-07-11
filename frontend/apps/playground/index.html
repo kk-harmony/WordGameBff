@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WordGame Playground</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 720px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        box-sizing: border-box;
+      }
+      #widget-host {
+        width: 100%;
+      }
+      .log {
+        background: #f1f5f9;
+        padding: 1rem;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .log-entry {
+        margin: 0.25rem 0;
+      }
+      @media (max-width: 480px) {
+        body {
+          margin: 1rem auto;
+          padding: 0 max(1rem, env(safe-area-inset-right, 0px))
+            max(1rem, env(safe-area-inset-bottom, 0px))
+            max(1rem, env(safe-area-inset-left, 0px));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WordGame Playground</h1>
+    <p>Dev host for the WordGame micro frontend embed widget.</p>
+    <div id="widget-host"></div>
+    <h2>Events</h2>
+    <div id="event-log" class="log" aria-live="polite"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+name: Backend CI
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - 'Dockerfile'
+      - 'WordGameBff.slnx'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - 'Dockerfile'
+      - 'WordGameBff.slnx'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore WordGameBff.slnx
+
+      - name: Build
+        run: dotnet build WordGameBff.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test WordGameBff.slnx -c Release --no-build

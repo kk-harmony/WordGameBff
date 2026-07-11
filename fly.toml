@@ -1,0 +1,33 @@
+app = "wordgamebff"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ASPNETCORE_ENVIRONMENT = "Production"
+  Realtime__Transport = "SignalR"
+  Realtime__BackplaneType = "PostgreSQL"
+  Stores__Type = "PostgreSQL"
+  POW__DIFFICULTYBITS = "20"
+  POW__CHALLENGEEXPIRYSECONDS = "300"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 2
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 500
+    soft_limit = 400
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    method = "GET"
+    path = "/health/ready"
+    timeout = "5s"

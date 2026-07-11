@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ne">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WordGame Local Demo</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+        box-sizing: border-box;
+      }
+      #widget-host {
+        width: 100%;
+      }
+      h1 { margin-bottom: 0.25rem; }
+      .subtitle { color: #475569; margin-top: 0; }
+      .log {
+        background: #f1f5f9;
+        padding: 1rem;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        max-height: 200px;
+        overflow-y: auto;
+        margin-top: 1.5rem;
+      }
+      .log-entry { margin: 0.25rem 0; }
+      @media (max-width: 480px) {
+        body {
+          margin: 1rem auto;
+          padding: 0 max(1rem, env(safe-area-inset-right, 0px))
+            max(1rem, env(safe-area-inset-bottom, 0px))
+            max(1rem, env(safe-area-inset-left, 0px));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WordGame Local Demo</h1>
+    <p class="subtitle">
+      Micro frontend embedded via Web Component against the local BFF stack.
+    </p>
+
+    <div id="widget-host"></div>
+
+    <h2>Events</h2>
+    <div id="event-log" class="log" aria-live="polite"></div>
+
+    <script>
+      function resolveApiBase(fallback) {
+        const params = new URLSearchParams(location.search);
+        const override = params.get("apiBase");
+        if (override) return override;
+        try {
+          const url = new URL(fallback);
+          const pageHost = location.hostname;
+          if (pageHost !== "localhost" && pageHost !== "127.0.0.1") {
+            url.hostname = pageHost;
+          }
+          return url.origin;
+        } catch {
+          return fallback;
+        }
+      }
+
+      const apiBase = resolveApiBase("http://localhost:8080");
+      const host = document.getElementById("widget-host");
+      const widget = document.createElement("word-game-widget");
+      widget.setAttribute("api-base", apiBase);
+      widget.setAttribute("locale", "ne");
+      widget.setAttribute("theme", "light");
+      host.appendChild(widget);
+    </script>
+    <script src="/embed.js" crossorigin="anonymous"></script>
+    <script>
+      const log = document.getElementById("event-log");
+      function appendLog(message) {
+        const entry = document.createElement("div");
+        entry.className = "log-entry";
+        entry.textContent = message;
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+      }
+      [
+        "wordgame:ready",
+        "wordgame:session",
+        "wordgame:game",
+        "wordgame:error",
+        "wordgame:disconnected",
+        "wordgame:reconnected",
+      ].forEach((name) => {
+        document.addEventListener(name, (event) => {
+          const detail = event.detail ?? {};
+          if (name === "wordgame:session") {
+            appendLog(`${name}: userId=${detail.userId ?? "?"} expiresAt=${detail.expiresAt ?? "?"}`);
+            return;
+          }
+          appendLog(`${name}: ${JSON.stringify(detail)}`);
+        });
+      });
+    </script>
+  </body>
+</html>

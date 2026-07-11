@@ -1,0 +1,28 @@
+{
+  "name": "wordgame-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w @wordgame/sdk && npm run build -w @wordgame/ui && npm run dev -w @wordgame/embed & npm run dev -w @wordgame/playground",
+    "dev:playground": "npm run dev -w @wordgame/playground",
+    "build": "npm run build -w @wordgame/sdk && npm run build -w @wordgame/ui && npm run build -w @wordgame/embed",
+    "lint": "eslint packages apps --ext .ts && npm run typecheck",
+    "test": "npm run test -w @wordgame/sdk && npm run test -w @wordgame/ui && npm run test -w @wordgame/embed",
+    "test:e2e": "npm run test -w @wordgame/e2e",
+    "sri": "node scripts/sri.js",
+    "check:bundle-size": "node scripts/check-bundle-size.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.28.0",
+    "@types/node": "^22.15.21",
+    "eslint": "^9.28.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.33.0"
+  }
+}

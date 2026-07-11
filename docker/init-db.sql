@@ -1,0 +1,4 @@
+CREATE DATABASE wordgame;
+CREATE DATABASE wordgamebff;
+GRANT ALL PRIVILEGES ON DATABASE wordgame TO mainuser;
+GRANT ALL PRIVILEGES ON DATABASE wordgamebff TO mainuser;

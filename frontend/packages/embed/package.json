@@ -1,0 +1,20 @@
+{
+  "name": "@wordgame/embed",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@wordgame/sdk": "*",
+    "@wordgame/ui": "*"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}

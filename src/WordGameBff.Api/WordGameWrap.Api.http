@@ -1,0 +1,6 @@
+@WordGameWrap.Api_HostAddress = http://localhost:5101
+
+GET {{WordGameWrap.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

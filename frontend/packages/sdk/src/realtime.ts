@@ -1,0 +1,111 @@
+import {
+  HubConnection,
+  HubConnectionBuilder,
+  HubConnectionState,
+  LogLevel,
+} from '@microsoft/signalr';
+import type { GameRealtimeMessage } from './types.js';
+
+const RECEIVE_METHOD = 'gameEvent';
+const RECONNECT_DELAYS = [0, 2000, 5000, 10000, 30000];
+
+export interface RealtimeCallbacks {
+  /** Lightweight hub notification — fetch game state via REST in the handler. */
+  onNotify?: (message: GameRealtimeMessage) => void;
+  onReconnecting?: () => void;
+  onDisconnected?: () => void;
+  onReconnected?: () => void;
+}
+
+export class RealtimeClient {
+  private readonly apiBase: string;
+  private readonly gameId: number;
+  private readonly getToken: () => string | null;
+  private readonly callbacks: RealtimeCallbacks;
+  private connection: HubConnection | null = null;
+  private lastRevision = 0;
+  private disposed = false;
+
+  constructor(
+    apiBase: string,
+    gameId: number,
+    getToken: () => string | null,
+    callbacks: RealtimeCallbacks = {},
+  ) {
+    this.apiBase = apiBase.replace(/\/$/, '');
+    this.gameId = gameId;
+    this.getToken = getToken;
+    this.callbacks = callbacks;
+  }
+
+  getLastRevision(): number {
+    return this.lastRevision;
+  }
+
+  private buildHubUrl(): string {
+    const token = encodeURIComponent(this.getToken() ?? '');
+    return `${this.apiBase}/hubs/game?gameId=${this.gameId}&access_token=${token}`;
+  }
+
+  async connect(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+
+    if (this.connection?.state === HubConnectionState.Connected) {
+      return;
+    }
+
+    this.connection?.stop().catch(() => undefined);
+
+    this.connection = new HubConnectionBuilder()
+      .withUrl(this.buildHubUrl())
+      .withAutomaticReconnect(RECONNECT_DELAYS)
+      .configureLogging(LogLevel.Warning)
+      .build();
+
+    this.connection.on(RECEIVE_METHOD, (message: GameRealtimeMessage) => {
+      if (message.revision < this.lastRevision) {
+        return;
+      }
+      if (message.revision > this.lastRevision) {
+        this.lastRevision = message.revision;
+      }
+      this.callbacks.onNotify?.(message);
+    });
+
+    this.connection.onclose(() => {
+      if (!this.disposed) {
+        this.callbacks.onDisconnected?.();
+      }
+    });
+
+    this.connection.onreconnecting(() => {
+      if (!this.disposed) {
+        this.callbacks.onReconnecting?.();
+      }
+    });
+
+    this.connection.onreconnected(() => {
+      if (!this.disposed) {
+        this.callbacks.onReconnected?.();
+      }
+    });
+
+    await this.connection.start();
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.connection) {
+      await this.connection.stop();
+      this.connection = null;
+    }
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    void this.disconnect();
+  }
+}
+
+export { RECEIVE_METHOD, RECONNECT_DELAYS };
