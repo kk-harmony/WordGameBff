@@ -6,8 +6,11 @@
   for = "/v*/embed.js"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+    # Required for host SRI loads (script integrity + crossorigin="anonymous").
+    Access-Control-Allow-Origin = "*"
 
 [[headers]]
   for = "/v*/sri.txt"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+    Access-Control-Allow-Origin = "*"

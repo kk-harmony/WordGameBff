@@ -68,7 +68,22 @@ public sealed class GameHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        await _hubJoinService.LeaveAsync(Context.ConnectionId, Context.ConnectionAborted);
+        if (Context.Items.ContainsKey("userId"))
+        {
+            using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await _hubJoinService.LeaveAsync(Context.ConnectionId, cleanupTimeout.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Hub disconnect cleanup failed for connection {ConnectionId}",
+                    Context.ConnectionId);
+            }
+        }
+
         await base.OnDisconnectedAsync(exception);
     }
 

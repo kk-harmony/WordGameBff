@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('mobile viewport', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
   test('home tiles render on iPhone viewport', async ({ page }) => {
     await page.goto('/');
     await page.waitForSelector('word-game-widget', { timeout: 60_000 });

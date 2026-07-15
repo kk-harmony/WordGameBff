@@ -30,31 +30,33 @@ The host origin must be listed in BFF configuration.
 **Production — Fly.io BFF + Netlify CDN** (environment variables):
 
 ```bash
-# Fly.io secrets (BFF)
-Cors__AllowedOrigins__0=https://your-embed.netlify.app
-Cors__AllowedOrigins__1=https://your-host-app.com
+# Fly.io [env] in fly.toml (redeploy to apply) — not secrets
+Cors__AllowedOrigins__0=https://wordgameui.netlify.app
+Cors__AllowedOrigins__1=https://nepalishabda.netlify.app
+Cors__AllowedOrigins__2=http://localhost:5173
+Cors__AllowedOrigins__3=http://localhost:3000
 ```
 
-Also register the Netlify site URL if the embed is loaded directly from Netlify (not just the host app).
+Register every host-app origin that embeds the widget (production + local ports you use against the Fly BFF).
 
 Verify preflight against your Fly BFF:
 
 ```bash
 curl -i -X OPTIONS 'https://wordgamebff.fly.dev/api/me' \
-  -H 'Origin: https://your-embed.netlify.app' \
+  -H 'Origin: https://wordgameui.netlify.app' \
   -H 'Access-Control-Request-Method: GET' \
   -H 'Access-Control-Request-Headers: authorization'
 ```
 
-Expect `Access-Control-Allow-Origin: https://your-embed.netlify.app`.
+Expect `Access-Control-Allow-Origin: https://wordgameui.netlify.app`.
 
 ## 2. Load embed script (Netlify CDN)
 
 Production embed assets are deployed to Netlify from `frontend/` (see `netlify.toml`). Assets are served at versioned paths:
 
 ```
-https://your-embed.netlify.app/v1.0.0/embed.js
-https://your-embed.netlify.app/v1.0.0/sri.txt
+https://wordgameui.netlify.app/v1.0.0/embed.js
+https://wordgameui.netlify.app/v1.0.0/sri.txt
 ```
 
 For local Docker CDN instead:
@@ -75,13 +77,15 @@ Example script tag:
 
 ```html
 <script
-  src="https://cdn.example.com/v1.0.0/embed.js"
+  src="https://wordgameui.netlify.app/v1.0.0/embed.js"
   integrity="sha384-REPLACE_WITH_sri.txt"
   crossorigin="anonymous"
 ></script>
 ```
 
 Replace `sha384-REPLACE_WITH_sri.txt` with the contents of `sri.txt` from the same build.
+
+**CORS note:** SRI (`integrity` + `crossorigin="anonymous"`) requires the CDN to return `Access-Control-Allow-Origin` on `embed.js` (configured in `netlify.toml`). Without that header, the browser blocks the script — omit SRI/`crossorigin` for a classic script load, or ensure the CDN CORS headers are deployed.
 
 ## 3. Add the Web Component
 
@@ -152,7 +156,7 @@ Hub URL (internal to widget): `{api-base}/hubs/game?gameId={id}&access_token={to
 Recommended directives:
 
 ```
-script-src 'self' https://your-embed.netlify.app;
+script-src 'self' https://wordgameui.netlify.app;
 connect-src 'self' https://wordgamebff.fly.dev wss://wordgamebff.fly.dev;
 style-src 'self' 'unsafe-inline';
 ```

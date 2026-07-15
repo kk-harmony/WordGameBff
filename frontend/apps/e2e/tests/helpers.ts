@@ -1,12 +1,20 @@
 import type { APIRequestContext } from '@playwright/test';
 
 const API_BASE = process.env.BFF_URL ?? 'http://localhost:8080';
+const REQUIRE_FULL_STACK = process.env.REQUIRE_FULL_STACK === 'true';
+
+function unavailable(message: string): false {
+  if (REQUIRE_FULL_STACK) {
+    throw new Error(message);
+  }
+  return false;
+}
 
 export async function isFullStackAvailable(request: APIRequestContext): Promise<boolean> {
   try {
     const challengeRes = await request.get(`${API_BASE}/auth/challenge`);
     if (!challengeRes.ok()) {
-      return false;
+      return unavailable(`BFF challenge endpoint returned ${challengeRes.status()}`);
     }
     const challenge = (await challengeRes.json()) as {
       challengeId: string;
@@ -45,14 +53,17 @@ export async function isFullStackAvailable(request: APIRequestContext): Promise<
       data: { challengeId: challenge.challengeId, nonce },
     });
     if (!verifyRes.ok()) {
-      return false;
+      return unavailable(`BFF verification endpoint returned ${verifyRes.status()}`);
     }
     const session = (await verifyRes.json()) as { sessionToken: string };
     const meRes = await request.get(`${API_BASE}/api/me`, {
       headers: { Authorization: `Bearer ${session.sessionToken}` },
     });
-    return meRes.ok();
-  } catch {
+    return meRes.ok() || unavailable(`Authenticated BFF request returned ${meRes.status()}`);
+  } catch (error) {
+    if (REQUIRE_FULL_STACK) {
+      throw error;
+    }
     return false;
   }
 }

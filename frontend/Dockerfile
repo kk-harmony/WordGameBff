@@ -8,6 +8,7 @@ COPY tsconfig.json eslint.config.js ./
 COPY packages ./packages
 COPY apps/playground ./apps/playground
 COPY scripts ./scripts
+COPY types ./types
 
 RUN npm ci
 RUN npm run build

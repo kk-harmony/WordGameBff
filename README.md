@@ -261,9 +261,9 @@ Returns `429` with `Retry-After` header.
 
 ## Production deployment
 
-- **BFF:** Fly.io — see [docs/DEPLOY-FLY.md](docs/DEPLOY-FLY.md)
-- **Embed CDN:** Netlify — see [frontend/HOST-INTEGRATION.md](frontend/HOST-INTEGRATION.md) and `frontend/netlify.toml`
-- **wordgames:** independent Fly app; set `GAMEAPI__BASEURL` to its URL
+- **BFF:** Fly.io — see [docs/DEPLOY-FLY.md](docs/DEPLOY-FLY.md) (bootstrap once with `./scripts/setup-fly.sh`, then GitHub Actions **Deploy BFF** on `main`)
+- **Embed CDN:** Netlify — [frontend/HOST-INTEGRATION.md](frontend/HOST-INTEGRATION.md), `frontend/netlify.toml`, and Actions **Deploy frontend**
+- **wordgames:** independent Fly app; `GameApi__BaseUrl` is set in [`fly.toml`](fly.toml) `[env]`
 
 Production uses Postgres for SignalR backplane and shared BFF state (schema `bff`: `bff.store`, `bff.game_revisions`). Multi-instance requires `Stores__Type=PostgreSQL` and `Realtime__BackplaneType=PostgreSQL`.
 

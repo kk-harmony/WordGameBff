@@ -1,61 +1,22 @@
-name: Frontend CI
+# Full hermetic Playwright suite. Does not gate merges — run on schedule or manually.
+name: Frontend E2E
 
 on:
-  push:
-    paths:
-      - 'frontend/**'
-      - 'docker/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.ci.yml'
-      - 'Dockerfile'
-      - 'scripts/ci-*.sh'
-      - '.github/workflows/frontend-ci.yml'
-  pull_request:
-    paths:
-      - 'frontend/**'
-      - 'docker/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.ci.yml'
-      - 'Dockerfile'
-      - 'scripts/ci-*.sh'
-      - '.github/workflows/frontend-ci.yml'
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
-defaults:
-  run:
-    working-directory: frontend
+concurrency:
+  group: frontend-e2e
+  cancel-in-progress: true
 
 env:
   WORDGAMES_REF: cfe8bed6b34548fbd79e11a18d409d68f4bbecf7
   WORDGAMES_BUILD_CONTEXT: ./wordgames
 
 jobs:
-  build:
+  e2e:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Validate and build
-        run: npm run build
-
-      - name: Check bundle size
-        run: npm run check:bundle-size
-
-      - name: Generate SRI hash
-        run: npm run sri
-
-  smoke:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    needs: build
     steps:
       - uses: actions/checkout@v4
 
@@ -85,7 +46,6 @@ jobs:
         run: npx playwright install chromium --with-deps
 
       - name: Start stack
-        working-directory: .
         run: ./scripts/ci-start-hermetic-stack.sh
 
       - name: Start playground
@@ -98,9 +58,9 @@ jobs:
       - name: Wait for playground
         run: timeout 60 bash -c 'until curl -sf http://localhost:5173; do sleep 2; done'
 
-      - name: Smoke E2E
+      - name: Full E2E suite
         working-directory: frontend
-        run: npm run test:e2e:smoke
+        run: npm run test:e2e
         env:
           BFF_URL: http://localhost:8080
           PLAYWRIGHT_BASE_URL: http://localhost:5173
@@ -108,5 +68,4 @@ jobs:
 
       - name: Show stack diagnostics
         if: failure()
-        working-directory: .
         run: ./scripts/ci-dump-stack.sh

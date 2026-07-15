@@ -13,6 +13,13 @@ namespace WordGameBff.Infrastructure.Games;
 public sealed class GameApiClient : IGameApiClient
 {
     private const int ConflictRetryDelayMs = 100;
+    private static readonly TimeSpan[] TransientRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(250),
+        TimeSpan.FromMilliseconds(750),
+        TimeSpan.FromMilliseconds(1500),
+        TimeSpan.FromSeconds(3),
+    ];
 
     private readonly HttpClient _httpClient;
     private readonly ICustomAuthTokenService _tokenService;
@@ -124,6 +131,61 @@ public sealed class GameApiClient : IGameApiClient
         string? idempotencyKey = null)
     {
         var token = await _tokenService.GetServiceTokenAsync(cancellationToken);
+        var serializedBody = body is null ? null : JsonSerializer.Serialize(body, JsonOptions);
+        var canRetryTransientFailure =
+            method == HttpMethod.Get || !string.IsNullOrWhiteSpace(idempotencyKey);
+
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                var response = await SendOnceAsync(
+                    userId,
+                    method,
+                    path,
+                    serializedBody,
+                    token,
+                    idempotencyKey,
+                    cancellationToken);
+
+                if (!canRetryTransientFailure ||
+                    !IsTransientStatusCode(response.StatusCode) ||
+                    attempt >= TransientRetryDelays.Length)
+                {
+                    return response;
+                }
+
+                _logger.LogWarning(
+                    "Game API {Method} {Path} returned {StatusCode}; retrying attempt {Attempt}",
+                    method,
+                    path,
+                    response.StatusCode,
+                    attempt + 2);
+            }
+            catch (HttpRequestException ex) when (
+                canRetryTransientFailure && attempt < TransientRetryDelays.Length)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Game API {Method} {Path} failed; retrying attempt {Attempt}",
+                    method,
+                    path,
+                    attempt + 2);
+            }
+
+            await Task.Delay(TransientRetryDelays[attempt], cancellationToken);
+        }
+    }
+
+    private async Task<GameApiResponse> SendOnceAsync(
+        string userId,
+        HttpMethod method,
+        string path,
+        string? serializedBody,
+        string token,
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
         using var request = new HttpRequestMessage(method, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Add(GameApiHeaders.DelegatedUserId, userId);
@@ -133,12 +195,9 @@ public sealed class GameApiClient : IGameApiClient
             request.Headers.Add(GameApiHeaders.IdempotencyKey, idempotencyKey);
         }
 
-        if (body is not null)
+        if (serializedBody is not null)
         {
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(body, JsonOptions),
-                Encoding.UTF8,
-                "application/json");
+            request.Content = new StringContent(serializedBody, Encoding.UTF8, "application/json");
         }
 
         _logger.LogDebug("Proxying {Method} {Path} for user {UserId}", method, path, userId);
@@ -152,4 +211,7 @@ public sealed class GameApiClient : IGameApiClient
             Body = responseBody
         };
     }
+
+    private static bool IsTransientStatusCode(int statusCode) =>
+        statusCode is 408 or 500 or 502 or 503 or 504;
 }

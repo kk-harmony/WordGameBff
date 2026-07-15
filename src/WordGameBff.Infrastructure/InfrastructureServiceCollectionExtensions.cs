@@ -64,6 +64,7 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddHttpClient<ICustomAuthTokenService, CustomAuthTokenService>();
         services.AddHttpClient<IGameApiClient, GameApiClient>();
+        services.AddHostedService<GameApiWarmupService>();
 
         var realtime = configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>() ?? new RealtimeOptions();
         if (string.Equals(realtime.Transport, "SignalR", StringComparison.OrdinalIgnoreCase))

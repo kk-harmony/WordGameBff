@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearActiveGame,
   readActiveGame,
@@ -8,9 +8,24 @@ import {
 const API_BASE = 'http://localhost:8080';
 
 describe('activeGame storage', () => {
+  beforeEach(() => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
+      get length() {
+        return values.size;
+      },
+    } satisfies Storage);
+  });
+
   afterEach(() => {
     clearActiveGame(API_BASE);
     clearActiveGame('http://localhost:8080/');
+    vi.unstubAllGlobals();
   });
 
   it('round-trips read/write/clear', () => {

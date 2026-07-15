@@ -1,0 +1,42 @@
+# Deploys WordGameBff to Fly.io (fly.toml + Dockerfile at repo root).
+#
+# Required GitHub repository secret:
+#   FLY_API_TOKEN — fly tokens create deploy -a wordgamebff -x 999999h
+#
+# Runtime credentials are Fly secrets (set via scripts/setup-fly.sh).
+# Non-secrets (URLs, CORS) live in fly.toml [env].
+
+name: Deploy BFF
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Dockerfile'
+      - 'fly.toml'
+      - 'Directory.Build.props'
+      - 'global.json'
+      - 'WordGameBff.sln'
+      - '.github/workflows/deploy-bff.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-bff-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+
+      - name: Deploy
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

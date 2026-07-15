@@ -1,62 +1,79 @@
-# Deploy WordGameBff to Fly.io
+# Deploy WordGameBff to Fly.io + embed to Netlify
 
 Multi-instance BFF using Fly Postgres for SignalR backplane and shared KV state.
+Day-to-day deploys run via GitHub Actions after a one-time bootstrap.
 
 ## Prerequisites
 
-- [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated
-- CustomAuth M2M credentials
-- wordgames app deployed separately (provide its URL)
-- Netlify site URL for embed CDN (for CORS)
+- [Fly CLI](https://fly.io/docs/hands-on/install-flyctl/) installed and authenticated (`fly auth login`)
+- CustomAuth M2M client id/secret
+- wordgames Fly app URL (default in [`fly.toml`](../fly.toml): `https://wordgames-api.fly.dev`)
+- Netlify site for the embed CDN (for CORS origins in `fly.toml`)
 
-## 1. Create the Fly app
+## Config split (CustomAuth pattern)
 
-```bash
-fly apps create wordgamebff
+| Where | What |
+|-------|------|
+| [`fly.toml`](../fly.toml) `[env]` | Non-secrets: `GameApi__BaseUrl`, `CustomAuth__Authority` / `Audience`, `Session__Issuer` / `ExpiryMinutes`, `Cors__AllowedOrigins__*`, Realtime/Stores/PoW |
+| Fly **secrets** | Credentials only: `REALTIME__BACKPLANE__CONNECTIONSTRING` (Npgsql), `SESSION__SIGNINGKEY`, `CUSTOMAUTH__CLIENTID` / `CLIENTSECRET` |
+| GitHub Actions secrets | Deploy tokens only: `FLY_API_TOKEN`, `NETLIFY_AUTH_TOKEN`, `NETLIFY_SITE_ID` |
+
+`fly postgres attach` sets `DATABASE_URL` (URI). **Do not use it** for the BFF — same as CustomOAuthServer. Set an explicit Npgsql string with `SSL Mode=Require`.
+
+## 1. Netlify site (embed CDN)
+
+Create a Netlify site pointed at `frontend/` (or create empty and let Actions deploy). Note the public URL and site ID.
+
+Update CORS in [`fly.toml`](../fly.toml):
+
+```toml
+Cors__AllowedOrigins__0 = "https://wordgameui.netlify.app"
+Cors__AllowedOrigins__1 = "https://nepalishabda.netlify.app"
+Cors__AllowedOrigins__2 = "http://localhost:5173"
+Cors__AllowedOrigins__3 = "http://localhost:3000"
 ```
 
-Or rename `app` in [`fly.toml`](../fly.toml) to match your app name.
-
-## 2. Provision Postgres
+## 2. Bootstrap Fly (app + Postgres + secrets)
 
 ```bash
-fly postgres create --name wordgamebff-db --region iad
-fly postgres attach wordgamebff-db --app wordgamebff
+cp .env.fly.example .env.fly
+# Fill CUSTOMAUTH__CLIENTID / CLIENTSECRET and REALTIME__BACKPLANE__CONNECTIONSTRING
+# (or FLY_PG_HOST / FLY_PG_DB / FLY_PG_USER / FLY_PG_PASSWORD)
+
+./scripts/setup-fly.sh
 ```
 
-This sets `DATABASE_URL`. Map it to the BFF backplane connection string:
+The script creates `wordgamebff` + `wordgamebff-db`, attaches Postgres, and sets credential secrets only.
+
+To build the Npgsql string yourself after create/attach:
 
 ```bash
-# Convert DATABASE_URL to Npgsql format if needed, then:
-fly secrets set \
-  REALTIME__BACKPLANE__CONNECTIONSTRING="Host=...;Port=5432;Database=wordgamebff;Username=...;Password=...;SSL Mode=Require"
+fly postgres db list -a wordgamebff-db
+# → Host=...;Port=5432;Database=...;Username=...;Password=...;SSL Mode=Require
 ```
 
-Tables live under the dedicated Postgres schema `bff` (`bff.store`, `bff.game_revisions`). Created automatically on first startup via `PostgresSchemaInitializer`. You can also apply manually:
+Schema `bff` (`bff.store`, `bff.game_revisions`) is created automatically on first boot via `PostgresSchemaInitializer`.
+
+## 3. GitHub Actions secrets
 
 ```bash
-fly postgres connect -a wordgamebff-db < docker/bff-store-schema.sql
+fly tokens create deploy -a wordgamebff -x 999999h
+# → Settings → Secrets → Actions → FLY_API_TOKEN
+
+# Also set:
+#   NETLIFY_AUTH_TOKEN  (Netlify personal access token)
+#   NETLIFY_SITE_ID     (Netlify site API ID)
 ```
-
-## 3. Set secrets
-
-```bash
-fly secrets set \
-  SESSION__SIGNINGKEY="$(openssl rand -base64 48)" \
-  CUSTOMAUTH__CLIENTID="your-client-id" \
-  CUSTOMAUTH__CLIENTSECRET="your-client-secret" \
-  GAMEAPI__BASEURL="https://wordgames.fly.dev" \
-  CORS__ALLOWEDORIGINS__0="https://your-embed.netlify.app" \
-  CORS__ALLOWEDORIGINS__1="https://your-host-app.com"
-```
-
-`Stores__Type=PostgreSQL` is set in `fly.toml` and reuses `REALTIME__BACKPLANE__CONNECTIONSTRING`.
 
 ## 4. Deploy
 
+Push to `main` (path-filtered) or run **Deploy BFF** / **Deploy frontend** via `workflow_dispatch`.
+
+Manual alternative:
+
 ```bash
-fly deploy
-fly scale count 2
+fly deploy --remote-only
+# fly.toml already has min_machines_running = 2
 ```
 
 ## 5. Verify
@@ -66,7 +83,7 @@ curl https://wordgamebff.fly.dev/health/live
 curl https://wordgamebff.fly.dev/health/ready
 
 curl -i -X OPTIONS 'https://wordgamebff.fly.dev/api/me' \
-  -H 'Origin: https://your-embed.netlify.app' \
+  -H 'Origin: https://wordgameui.netlify.app' \
   -H 'Access-Control-Request-Method: GET' \
   -H 'Access-Control-Request-Headers: authorization'
 ```
@@ -84,15 +101,24 @@ Before go-live:
 
 ## Netlify embed CDN
 
-See [frontend/HOST-INTEGRATION.md](../frontend/HOST-INTEGRATION.md). Deploy embed from `frontend/` with Netlify using `netlify.toml`.
+See [frontend/HOST-INTEGRATION.md](../frontend/HOST-INTEGRATION.md). Deploy uses [`frontend/netlify.toml`](../frontend/netlify.toml) via the **Deploy frontend** workflow.
 
 ## Environment reference
+
+### `fly.toml` `[env]` (not secret)
+
+| Variable | Purpose |
+|----------|---------|
+| `GameApi__BaseUrl` | wordgames Fly app URL |
+| `CustomAuth__Authority` / `Audience` | Public OIDC settings |
+| `Session__Issuer` / `ExpiryMinutes` | Session JWT metadata |
+| `Cors__AllowedOrigins__N` | Netlify CDN + host app origins |
+| `Realtime__*` / `Stores__Type` / `POW__*` | Production realtime + PoW |
+
+### Fly secrets (credentials)
 
 | Variable | Purpose |
 |----------|---------|
 | `SESSION__SIGNINGKEY` | BFF session JWT HMAC key (>= 32 chars) |
 | `CUSTOMAUTH__CLIENTID` / `CLIENTSECRET` | M2M token exchange |
-| `GAMEAPI__BASEURL` | wordgames Fly app URL |
-| `REALTIME__BACKPLANE__CONNECTIONSTRING` | Fly Postgres (backplane + KV stores) |
-| `STORES__TYPE` | `PostgreSQL` in production |
-| `CORS__ALLOWEDORIGINS__N` | Netlify CDN + host app origins |
+| `REALTIME__BACKPLANE__CONNECTIONSTRING` | Npgsql Postgres (backplane + KV stores); ignore attach `DATABASE_URL` |

@@ -1,4 +1,4 @@
-import type { Game, GameMember } from '@wordgame/sdk';
+import type { GameMember } from '@wordgame/sdk';
 
 export function hasMemberVoted(member: GameMember | undefined): boolean {
   return member?.votedForUserId != null && member.votedForUserId !== '';

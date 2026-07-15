@@ -36,6 +36,9 @@ function isPrivateNetworkHost(hostname: string): boolean {
     return false;
   }
   const [a, b] = octets;
+  if (a === undefined || b === undefined) {
+    return false;
+  }
   if (a === 10) {
     return true;
   }

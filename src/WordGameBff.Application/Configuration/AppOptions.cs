@@ -4,6 +4,7 @@ public sealed class GameApiOptions
 {
     public const string SectionName = "GameApi";
     public string BaseUrl { get; set; } = "http://wordgames:8081";
+    public string WarmupPath { get; set; } = "/q/health/live";
 }
 
 public sealed class CustomAuthOptions

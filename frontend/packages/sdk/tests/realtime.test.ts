@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GameRealtimeMessage } from '../src/types.js';
 
 const mockStart = vi.fn(async () => {});

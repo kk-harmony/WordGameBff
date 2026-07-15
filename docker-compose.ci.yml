@@ -1,0 +1,40 @@
+services:
+  mock-oauth2:
+    image: ghcr.io/navikt/mock-oauth2-server:5.0.2
+    ports:
+      - "${MOCK_OAUTH2_PORT:-8090}:8080"
+    environment:
+      JSON_CONFIG_PATH: /app/config.json
+    volumes:
+      - ./docker/mock-oauth-config.json:/app/config.json:ro
+
+  wordgames:
+    environment:
+      OIDC_AUTH_SERVER_URL: http://mock-oauth2:8080/default
+      OIDC_CLIENT_ID: wordgamebff-ci
+      OIDC_CLIENT_SECRET: ci-only-client-secret
+      OIDC_TOKEN_AUDIENCE: resource_server
+      BFF_CLIENT_ID: wordgamebff-ci
+    depends_on:
+      mock-oauth2:
+        condition: service_started
+
+  wordgamebff:
+    environment:
+      CustomAuth__Authority: http://mock-oauth2:8080/default
+      CustomAuth__ClientId: wordgamebff-ci
+      CustomAuth__ClientSecret: ci-only-client-secret
+      Pow__DifficultyBits: '8'
+    depends_on:
+      mock-oauth2:
+        condition: service_started
+
+  wordgamebff2:
+    environment:
+      CustomAuth__Authority: http://mock-oauth2:8080/default
+      CustomAuth__ClientId: wordgamebff-ci
+      CustomAuth__ClientSecret: ci-only-client-secret
+      Pow__DifficultyBits: '8'
+    depends_on:
+      mock-oauth2:
+        condition: service_started
