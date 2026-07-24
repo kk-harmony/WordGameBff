@@ -1,13 +1,20 @@
 import {
+  HttpTransportType,
   HubConnection,
   HubConnectionBuilder,
   HubConnectionState,
   LogLevel,
+  type IHttpConnectionOptions,
 } from '@microsoft/signalr';
 import type { GameRealtimeMessage } from './types.js';
 
 const RECEIVE_METHOD = 'gameEvent';
 const RECONNECT_DELAYS = [0, 2000, 5000, 10000, 30000];
+
+const HUB_CONNECTION_OPTIONS: IHttpConnectionOptions = {
+  skipNegotiation: true,
+  transport: HttpTransportType.WebSockets,
+};
 
 export interface RealtimeCallbacks {
   /** Lightweight hub notification — fetch game state via REST in the handler. */
@@ -48,58 +55,54 @@ export class RealtimeClient {
   }
 
   async connect(): Promise<void> {
-    if (this.disposed) {
-      return;
-    }
-
-    if (this.connection?.state === HubConnectionState.Connected) {
+    if (this.disposed || this.connection?.state === HubConnectionState.Connected) {
       return;
     }
 
     this.connection?.stop().catch(() => undefined);
 
     this.connection = new HubConnectionBuilder()
-      .withUrl(this.buildHubUrl())
+      .withUrl(this.buildHubUrl(), HUB_CONNECTION_OPTIONS)
       .withAutomaticReconnect(RECONNECT_DELAYS)
       .configureLogging(LogLevel.Warning)
       .build();
 
-    this.connection.on(RECEIVE_METHOD, (message: GameRealtimeMessage) => {
-      if (message.revision < this.lastRevision) {
-        return;
-      }
-      if (message.revision > this.lastRevision) {
-        this.lastRevision = message.revision;
-      }
-      this.callbacks.onNotify?.(message);
-    });
-
-    this.connection.onclose(() => {
-      if (!this.disposed) {
-        this.callbacks.onDisconnected?.();
-      }
-    });
-
-    this.connection.onreconnecting(() => {
-      if (!this.disposed) {
-        this.callbacks.onReconnecting?.();
-      }
-    });
-
-    this.connection.onreconnected(() => {
-      if (!this.disposed) {
-        this.callbacks.onReconnected?.();
-      }
-    });
-
+    this.bindConnectionHandlers(this.connection);
     await this.connection.start();
   }
 
-  async disconnect(): Promise<void> {
-    if (this.connection) {
-      await this.connection.stop();
-      this.connection = null;
+  private bindConnectionHandlers(connection: HubConnection): void {
+    connection.on(RECEIVE_METHOD, (message: GameRealtimeMessage) => {
+      this.handleMessage(message);
+    });
+
+    connection.onclose(() => this.emitIfActive(this.callbacks.onDisconnected));
+    connection.onreconnecting(() => this.emitIfActive(this.callbacks.onReconnecting));
+    connection.onreconnected(() => this.emitIfActive(this.callbacks.onReconnected));
+  }
+
+  private handleMessage(message: GameRealtimeMessage): void {
+    if (message.revision < this.lastRevision) {
+      return;
     }
+    if (message.revision > this.lastRevision) {
+      this.lastRevision = message.revision;
+    }
+    this.callbacks.onNotify?.(message);
+  }
+
+  private emitIfActive(callback?: () => void): void {
+    if (!this.disposed) {
+      callback?.();
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (!this.connection) {
+      return;
+    }
+    await this.connection.stop();
+    this.connection = null;
   }
 
   dispose(): void {

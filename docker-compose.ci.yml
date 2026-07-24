@@ -25,6 +25,11 @@ services:
       CustomAuth__ClientId: wordgamebff-ci
       CustomAuth__ClientSecret: ci-only-client-secret
       Pow__DifficultyBits: '8'
+      # Full E2E mints many PoW sessions from one CI runner IP.
+      RateLimiting__AuthIpPermitLimit: '120'
+      RateLimiting__ApiIpPermitLimit: '600'
+      RateLimiting__ApiSessionPermitLimit: '600'
+      RateLimiting__HubIpPermitLimit: '600'
     depends_on:
       mock-oauth2:
         condition: service_started
@@ -35,6 +40,10 @@ services:
       CustomAuth__ClientId: wordgamebff-ci
       CustomAuth__ClientSecret: ci-only-client-secret
       Pow__DifficultyBits: '8'
+      RateLimiting__AuthIpPermitLimit: '120'
+      RateLimiting__ApiIpPermitLimit: '600'
+      RateLimiting__ApiSessionPermitLimit: '600'
+      RateLimiting__HubIpPermitLimit: '600'
     depends_on:
       mock-oauth2:
         condition: service_started

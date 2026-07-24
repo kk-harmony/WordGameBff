@@ -10,56 +10,30 @@ function unavailable(message: string): false {
   return false;
 }
 
+/** Cached so parallel/sequential specs do not each burn a stack probe. */
+let fullStackAvailable: Promise<boolean> | undefined;
+
+/**
+ * Lightweight readiness gate for hermetic docker-compose tests.
+ * Uses /health only — do not hit /auth/challenge here (Auth IP rate limit).
+ */
 export async function isFullStackAvailable(request: APIRequestContext): Promise<boolean> {
+  fullStackAvailable ??= probeFullStack(request);
   try {
-    const challengeRes = await request.get(`${API_BASE}/auth/challenge`);
-    if (!challengeRes.ok()) {
-      return unavailable(`BFF challenge endpoint returned ${challengeRes.status()}`);
-    }
-    const challenge = (await challengeRes.json()) as {
-      challengeId: string;
-      prefix: string;
-      difficulty: number;
-    };
+    return await fullStackAvailable;
+  } catch (error) {
+    fullStackAvailable = undefined;
+    throw error;
+  }
+}
 
-    let nonce = '0';
-    for (let i = 0; i < 1_000_000; i++) {
-      const candidate = i.toString();
-      const data = new TextEncoder().encode(challenge.prefix + candidate);
-      const digest = await crypto.subtle.digest('SHA-256', data);
-      const hash = new Uint8Array(digest);
-      let bits = 0;
-      for (const b of hash) {
-        if (b === 0) {
-          bits += 8;
-          continue;
-        }
-        for (let bit = 7; bit >= 0; bit--) {
-          if ((b & (1 << bit)) === 0) {
-            bits++;
-          } else {
-            break;
-          }
-        }
-        break;
-      }
-      if (bits >= challenge.difficulty) {
-        nonce = candidate;
-        break;
-      }
+async function probeFullStack(request: APIRequestContext): Promise<boolean> {
+  try {
+    const healthRes = await request.get(`${API_BASE}/health`);
+    if (!healthRes.ok()) {
+      return unavailable(`BFF health endpoint returned ${healthRes.status()}`);
     }
-
-    const verifyRes = await request.post(`${API_BASE}/auth/verify`, {
-      data: { challengeId: challenge.challengeId, nonce },
-    });
-    if (!verifyRes.ok()) {
-      return unavailable(`BFF verification endpoint returned ${verifyRes.status()}`);
-    }
-    const session = (await verifyRes.json()) as { sessionToken: string };
-    const meRes = await request.get(`${API_BASE}/api/me`, {
-      headers: { Authorization: `Bearer ${session.sessionToken}` },
-    });
-    return meRes.ok() || unavailable(`Authenticated BFF request returned ${meRes.status()}`);
+    return true;
   } catch (error) {
     if (REQUIRE_FULL_STACK) {
       throw error;

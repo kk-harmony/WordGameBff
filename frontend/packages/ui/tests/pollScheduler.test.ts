@@ -12,7 +12,7 @@ describe('GamePollScheduler', () => {
 
   it('fires ticks when realtime is disconnected', () => {
     const onTick = vi.fn();
-    const scheduler = new GamePollScheduler({ onTick }, 100);
+    const scheduler = new GamePollScheduler({ onTick }, 100, 500);
 
     scheduler.startForScreen('waiting', false);
     vi.advanceTimersByTime(99);
@@ -23,19 +23,20 @@ describe('GamePollScheduler', () => {
     expect(onTick).toHaveBeenCalledTimes(2);
   });
 
-  it('does not poll when realtime is connected', () => {
+  it('uses slower safety poll when realtime is connected', () => {
     const onTick = vi.fn();
-    const scheduler = new GamePollScheduler({ onTick }, 100);
+    const scheduler = new GamePollScheduler({ onTick }, 100, 500);
 
     scheduler.startForScreen('waiting', true);
-    scheduler.startForScreen('game', true);
-    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(499);
     expect(onTick).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onTick).toHaveBeenCalledTimes(1);
   });
 
   it('stop clears active timers', () => {
     const onTick = vi.fn();
-    const scheduler = new GamePollScheduler({ onTick }, 100);
+    const scheduler = new GamePollScheduler({ onTick }, 100, 500);
 
     scheduler.startForScreen('game', false);
     scheduler.stop();
@@ -45,7 +46,7 @@ describe('GamePollScheduler', () => {
 
   it('startForScreen replaces the previous timer', () => {
     const onTick = vi.fn();
-    const scheduler = new GamePollScheduler({ onTick }, 100);
+    const scheduler = new GamePollScheduler({ onTick }, 100, 500);
 
     scheduler.startForScreen('waiting', false);
     scheduler.startForScreen('game', false);

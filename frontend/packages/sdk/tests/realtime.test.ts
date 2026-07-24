@@ -10,11 +10,15 @@ const handlers: {
   onreconnected?: () => void;
 } = {};
 
+const withUrlCalls: unknown[] = [];
+
 vi.mock('@microsoft/signalr', () => ({
   HubConnectionState: { Connected: 1, Disconnected: 0 },
   LogLevel: { Warning: 2 },
+  HttpTransportType: { WebSockets: 1 },
   HubConnectionBuilder: class {
-    withUrl() {
+    withUrl(url: string, options?: unknown) {
+      withUrlCalls.push({ url, options });
       return this;
     }
     withAutomaticReconnect() {
@@ -52,6 +56,7 @@ import { RealtimeClient, RECEIVE_METHOD } from '../src/realtime.js';
 describe('RealtimeClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    withUrlCalls.length = 0;
     delete handlers.gameEvent;
     delete handlers.onclose;
     delete handlers.onreconnecting;
@@ -70,6 +75,10 @@ describe('RealtimeClient', () => {
 
     await client.connect();
     expect(mockStart).toHaveBeenCalled();
+    expect(withUrlCalls[0]).toEqual({
+      url: 'http://localhost:8080/hubs/game?gameId=1&access_token=token',
+      options: { skipNegotiation: true, transport: 1 },
+    });
 
     handlers.gameEvent?.({
       type: 'gameChanged',

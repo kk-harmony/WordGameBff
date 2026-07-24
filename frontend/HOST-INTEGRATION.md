@@ -145,9 +145,9 @@ const instance = window.WordGame.mount({
 // instance.dispose() when done
 ```
 
-## 5. Sticky sessions (SignalR)
+## 5. SignalR / multi-instance
 
-Place a load balancer with **sticky sessions** in front of multiple BFF instances. WebSocket connections must stay on the same instance; REST can round-robin.
+The embed SDK connects with WebSockets and `skipNegotiation`, so the negotiate sticky-session requirement does not apply. Each WebSocket remains on one BFF instance; game change events fan out through the Postgres NOTIFY/LISTEN backplane. REST can round-robin.
 
 Hub URL (internal to widget): `{api-base}/hubs/game?gameId={id}&access_token={token}`
 

@@ -88,7 +88,7 @@ Multi-instance testing:
 docker compose --profile multi-instance up --build
 ```
 
-Place a load balancer with **sticky sessions** in front of WordGameBff replicas for WebSocket/SignalR. REST calls can round-robin; realtime delivery is local per instance after backplane fan-out.
+Realtime clients connect with **WebSockets + skipNegotiation**, so SignalR does not need sticky sessions for the negotiate handshake. REST can round-robin; each WebSocket stays on one instance and realtime delivery fans out via the Postgres backplane.
 
 
 ### Podman + host PostgreSQL (recommended local full stack)

@@ -10,6 +10,7 @@ import {
   type SessionPublic,
 } from '@wordgame/sdk';
 import { formatString, getStrings, type LocaleStrings } from './i18n/index.js';
+import { CoalescingAsyncRunner } from './coalescingAsync.js';
 import { GamePollScheduler } from './pollScheduler.js';
 import {
   buildActiveGameMetaLine,
@@ -106,6 +107,7 @@ export class WordGameApp {
   private liveRegion: HTMLElement | null = null;
   private lastGameFingerprint: string | null = null;
   private realtimeConnected = false;
+  private readonly gameRefresh = new CoalescingAsyncRunner<GameChangeAction>();
   private disposed = false;
 
   constructor(container: HTMLElement, options: WordGameAppOptions) {
@@ -706,7 +708,7 @@ export class WordGameApp {
     return isVotingStatus(status) || isPlayingStatus(status) || isFinishedStatus(status);
   }
 
-  /** REST fallback while in waiting/game when SignalR is unavailable. */
+  /** REST poll in waiting/game: fast when SignalR is down, slower safety net when connected. */
   private syncBackgroundPoll(): void {
     if (this.screen !== 'waiting' && (this.screen !== 'game' || !this.shouldPollGameScreen())) {
       this.pollScheduler.stop();
@@ -831,7 +833,11 @@ export class WordGameApp {
   }
 
   /** Single path for loading authoritative game state from the BFF. */
-  private async refreshGameFromServer(action?: GameChangeAction): Promise<void> {
+  private refreshGameFromServer(action?: GameChangeAction): Promise<void> {
+    return this.gameRefresh.run((queuedAction) => this.fetchAndApplyGame(queuedAction), action);
+  }
+
+  private async fetchAndApplyGame(action?: GameChangeAction): Promise<void> {
     if (this.disposed || !this.game?.id) {
       return;
     }
