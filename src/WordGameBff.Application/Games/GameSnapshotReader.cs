@@ -50,6 +50,9 @@ public sealed class GameSnapshotReader : IGameSnapshotReader
                 return inside!;
             }
 
+            // Read the revision before the fetch: a mutation landing mid-flight publishes a
+            // higher one, so the cache keeps that newer state instead of this now-stale body.
+            var revision = await _revisionStore.GetCurrentRevisionAsync(gameId, ct);
             var response = await _gameApiClient.GetGameAsync(userId, gameId, ct);
             if (response is null)
             {
@@ -62,7 +65,6 @@ public sealed class GameSnapshotReader : IGameSnapshotReader
 
             if (response.IsSuccess)
             {
-                var revision = await _revisionStore.GetCurrentRevisionAsync(gameId, ct);
                 _cache.Set(gameId, response.Body, revision);
             }
 

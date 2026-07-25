@@ -38,12 +38,37 @@ public class MemoryGameSnapshotCacheTests
     }
 
     [Fact]
-    public void Invalidate_RemovesEntry()
+    public void InvalidateOlderThan_RemovesOlderEntry()
     {
         var cache = CreateCache();
         cache.Set(9, """{"id":9}""", revision: 1);
-        cache.Invalidate(9);
+        cache.InvalidateOlderThan(9, revision: 2);
         Assert.False(cache.TryGet(9, out _));
+    }
+
+    [Fact]
+    public void InvalidateOlderThan_KeepsEntryAlreadyAtRevision()
+    {
+        var cache = CreateCache();
+        cache.Set(9, """{"id":9,"fresh":true}""", revision: 4);
+        cache.InvalidateOlderThan(9, revision: 4);
+
+        Assert.True(cache.TryGet(9, out var snapshot));
+        Assert.Contains("fresh", snapshot!.RawJson);
+    }
+
+    [Fact]
+    public void Set_IgnoresBodyOlderThanLastInvalidation()
+    {
+        var cache = CreateCache();
+        cache.InvalidateOlderThan(9, revision: 6);
+
+        cache.Set(9, """{"id":9,"stale":true}""", revision: 5);
+        Assert.False(cache.TryGet(9, out _));
+
+        cache.Set(9, """{"id":9,"current":true}""", revision: 6);
+        Assert.True(cache.TryGet(9, out var snapshot));
+        Assert.Contains("current", snapshot!.RawJson);
     }
 
     [Fact]
@@ -154,6 +179,49 @@ public class GameSnapshotReaderTests
         var results = await Task.WhenAll(first, second);
         Assert.All(results, r => Assert.True(r.IsSuccess));
         gameApi.Verify(x => x.GetGameAsync("u1", 2, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetGame_DoesNotOverwriteSnapshotCachedDuringFetch()
+    {
+        var revisions = new InMemoryGameRevisionStore();
+        await revisions.GetNextRevisionAsync(3); // revision = 1
+
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gameApi = new Mock<IGameApiClient>();
+        gameApi.Setup(x => x.GetGameAsync("u1", 3, It.IsAny<CancellationToken>()))
+            .Returns(async (string _, long _, CancellationToken _) =>
+            {
+                started.TrySetResult();
+                await release.Task;
+                return new GameApiResponse
+                {
+                    StatusCode = 200,
+                    Body = """{"id":3,"name":"stale","adminUserId":"u1","status":"WAITING","members":[{"userId":"u1","role":"ADMIN"}]}""",
+                };
+            });
+
+        var cache = new MemoryGameSnapshotCache(
+            new MemoryCache(new MemoryCacheOptions()),
+            Options.Create(new GameSnapshotOptions { CacheTtlSeconds = 60 }));
+        var reader = new GameSnapshotReader(gameApi.Object, cache, revisions, new GameSnapshotFetchGate());
+
+        var fetch = reader.GetGameAsync("u1", 3);
+        await started.Task;
+        await revisions.GetNextRevisionAsync(3); // mutation bumps to 2 mid-fetch
+        cache.Set(
+            3,
+            """{"id":3,"name":"fresh","adminUserId":"u1","status":"WAITING","members":[{"userId":"u1","role":"ADMIN"}]}""",
+            revision: 2);
+        release.TrySetResult();
+
+        var response = await fetch;
+        Assert.True(response.IsSuccess);
+        Assert.Contains("stale", response.Body);
+        Assert.True(cache.TryGet(3, out var snapshot));
+        Assert.Contains("fresh", snapshot!.RawJson);
+        Assert.Equal(2, snapshot.Revision);
     }
 }
 
@@ -343,9 +411,14 @@ public class GameEventPublisherSnapshotTests
             new MemoryCache(new MemoryCacheOptions()),
             Options.Create(new GameSnapshotOptions()));
         cache.Set(1, """{"id":1}""", revision: 1);
+
+        // The leave mutation mints revision 2, so the cached revision-1 body is stale.
+        var revisions = new InMemoryGameRevisionStore();
+        await revisions.GetNextRevisionAsync(1);
+
         var publisher = new GameEventPublisher(
             backplane.Object,
-            new InMemoryGameRevisionStore(),
+            revisions,
             cache,
             Options.Create(new GameSnapshotOptions()),
             NullLogger<GameEventPublisher>.Instance);
@@ -391,7 +464,7 @@ public class PostgresBackplanePayloadTests
 
         Assert.Null(parsed.Snapshot);
         Assert.Null(parsed.SnapshotJson);
-        Assert.False(parsed.InvalidateCache);
+        Assert.True(parsed.InvalidateCache);
     }
 }
 
@@ -420,5 +493,53 @@ public class GameSnapshotCacheSyncTests
         });
 
         Assert.True(cache.TryGet(1, out _));
+    }
+
+    [Fact]
+    public void Apply_InvalidatesStaleCacheWhenFlagSet()
+    {
+        var cache = new MemoryGameSnapshotCache(
+            new MemoryCache(new MemoryCacheOptions()),
+            Options.Create(new GameSnapshotOptions { CacheTtlSeconds = 60 }));
+        cache.Set(1, """{"id":1,"stale":true}""", revision: 1);
+
+        GameSnapshotCacheSync.Apply(cache, new GameRealtimeEnvelope
+        {
+            Notification = new GameRealtimeMessage
+            {
+                Type = "gameChanged",
+                GameId = 1,
+                Revision = 2,
+                Action = "vote",
+            },
+            InvalidateCache = true,
+        });
+
+        Assert.False(cache.TryGet(1, out _));
+    }
+
+    [Fact]
+    public void Apply_KeepsSeededCacheWhenInvalidateEchoesSameRevision()
+    {
+        var cache = new MemoryGameSnapshotCache(
+            new MemoryCache(new MemoryCacheOptions()),
+            Options.Create(new GameSnapshotOptions { CacheTtlSeconds = 60 }));
+        cache.Set(1, """{"id":1,"fresh":true}""", revision: 5);
+
+        GameSnapshotCacheSync.Apply(cache, new GameRealtimeEnvelope
+        {
+            Notification = new GameRealtimeMessage
+            {
+                Type = "gameChanged",
+                GameId = 1,
+                Revision = 5,
+                Action = "vote",
+            },
+            InvalidateCache = true,
+        });
+
+        Assert.True(cache.TryGet(1, out var snapshot));
+        Assert.Contains("fresh", snapshot!.RawJson);
+        Assert.Equal(5, snapshot.Revision);
     }
 }

@@ -56,7 +56,8 @@ public sealed class PostgresGameRealtimeBackplane : IGameRealtimeBackplane
             envelope.Notification.GameId,
             maxBytes);
 
-        // Keep InvalidateCache as-is: oversized drop must not clear a just-seeded local cache.
+        // Stripping the snapshot would otherwise leave other instances serving a pre-mutation
+        // body. Eviction is revision-scoped, so the publisher's own seed at this revision stays.
         return new GameRealtimeEnvelope
         {
             Notification = new GameRealtimeMessage
@@ -69,7 +70,7 @@ public sealed class PostgresGameRealtimeBackplane : IGameRealtimeBackplane
             },
             Snapshot = null,
             SnapshotJson = null,
-            InvalidateCache = envelope.InvalidateCache,
+            InvalidateCache = true,
         }.ToJson();
     }
 }
