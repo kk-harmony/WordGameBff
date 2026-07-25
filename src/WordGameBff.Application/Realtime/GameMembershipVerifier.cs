@@ -15,16 +15,16 @@ public interface IGameMembershipVerifier
 
 public sealed class UpstreamGameMembershipVerifier : IGameMembershipVerifier
 {
-    private readonly IGameApiClient _gameApiClient;
+    private readonly IGameSnapshotReader _snapshotReader;
     private readonly TimeSpan _timeout;
     private readonly ILogger<UpstreamGameMembershipVerifier> _logger;
 
     public UpstreamGameMembershipVerifier(
-        IGameApiClient gameApiClient,
+        IGameSnapshotReader snapshotReader,
         IOptions<RealtimeOptions> options,
         ILogger<UpstreamGameMembershipVerifier> logger)
     {
-        _gameApiClient = gameApiClient;
+        _snapshotReader = snapshotReader;
         _timeout = TimeSpan.FromSeconds(options.Value.HubJoinUpstreamTimeoutSeconds);
         _logger = logger;
     }
@@ -39,8 +39,16 @@ public sealed class UpstreamGameMembershipVerifier : IGameMembershipVerifier
 
         try
         {
-            var response = await _gameApiClient.GetGameAsync(userId, gameId, timeoutSource.Token);
-            return response.IsSuccess;
+            var response = await _snapshotReader.GetGameAsync(userId, gameId, timeoutSource.Token);
+            if (!response.IsSuccess)
+            {
+                return false;
+            }
+
+            var game = System.Text.Json.JsonSerializer.Deserialize<Domain.Models.Game>(
+                response.Body,
+                RealtimeJson.Options);
+            return game is not null && GameMembership.IsMember(userId, game);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

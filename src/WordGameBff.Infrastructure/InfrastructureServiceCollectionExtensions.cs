@@ -27,9 +27,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.Configure<PowOptions>(configuration.GetSection(PowOptions.SectionName));
         services.Configure<CorsSettings>(configuration.GetSection(CorsSettings.SectionName));
         services.Configure<RealtimeOptions>(configuration.GetSection(RealtimeOptions.SectionName));
+        services.Configure<GameSnapshotOptions>(configuration.GetSection(GameSnapshotOptions.SectionName));
         services.Configure<StoreOptions>(configuration.GetSection(StoreOptions.SectionName));
 
         services.AddMemoryCache();
+        services.AddSingleton<IGameSnapshotCache, MemoryGameSnapshotCache>();
 
         var usePostgresStores = StoreConnectionResolver.UsePostgreSqlStores(configuration);
         var storeConnectionString = StoreConnectionResolver.Resolve(configuration);

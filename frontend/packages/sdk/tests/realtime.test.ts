@@ -86,11 +86,19 @@ describe('RealtimeClient', () => {
       revision: 2,
       triggeredBy: 'u2',
       action: 'vote',
+      game: {
+        id: 1,
+        name: 'G',
+        adminUserId: 'u1',
+        status: 'VOTING',
+        members: [{ userId: 'u1', role: 'ADMIN' }],
+      },
     });
 
     expect(messages).toHaveLength(1);
     expect(messages[0]?.type).toBe('gameChanged');
     expect(messages[0]?.action).toBe('vote');
+    expect(messages[0]?.game?.status).toBe('VOTING');
     expect(client.getLastRevision()).toBe(2);
     expect(RECEIVE_METHOD).toBe('gameEvent');
   });

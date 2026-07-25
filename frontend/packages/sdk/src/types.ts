@@ -89,6 +89,8 @@ export interface GameRealtimeMessage {
   revision: number;
   triggeredBy?: string;
   action?: GameChangeAction;
+  /** Viewer-sanitized snapshot; when present, clients apply it without refetching. */
+  game?: Game;
 }
 
 export type GameChangeAction =

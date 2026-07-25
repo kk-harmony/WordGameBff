@@ -49,6 +49,20 @@ public sealed class RealtimeOptions
     public int HubJoinUpstreamTimeoutSeconds { get; set; } = 3;
 }
 
+public sealed class GameSnapshotOptions
+{
+    public const string SectionName = "GameSnapshot";
+
+    /// <summary>When false, events stay lightweight and clients refetch via REST.</summary>
+    public bool PushEnabled { get; set; } = true;
+
+    /// <summary>Absolute TTL for the in-memory raw-game cache.</summary>
+    public int CacheTtlSeconds { get; set; } = 120;
+
+    /// <summary>Drop the snapshot from pg_notify when the envelope exceeds this many UTF-8 bytes.</summary>
+    public int MaxPayloadBytes { get; set; } = 6000;
+}
+
 public sealed class RealtimeBackplaneOptions
 {
     public string ConnectionString { get; set; } = string.Empty;

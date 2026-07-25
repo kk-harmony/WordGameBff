@@ -15,6 +15,11 @@ services:
       OIDC_CLIENT_SECRET: ci-only-client-secret
       OIDC_TOKEN_AUDIENCE: resource_server
       BFF_CLIENT_ID: wordgamebff-ci
+      # Hermetic E2E/load share one Docker NATed IP into wordgames.
+      QUARKUS_RATE_LIMITER_BUCKETS_API_LIMITS_0_PERMITTED_USES: '600'
+      QUARKUS_RATE_LIMITER_BUCKETS_API_LIMITS_1_PERMITTED_USES: '5000'
+      QUARKUS_RATE_LIMITER_BUCKETS_API_USER_LIMITS_0_PERMITTED_USES: '600'
+      QUARKUS_RATE_LIMITER_BUCKETS_API_USER_LIMITS_1_PERMITTED_USES: '5000'
     depends_on:
       mock-oauth2:
         condition: service_started

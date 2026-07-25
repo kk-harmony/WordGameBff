@@ -17,6 +17,9 @@ public interface IGameCommandService
 public sealed class GameCommandService : IGameCommandService
 {
     private readonly IGameApiClient _gameApiClient;
+    private readonly IGameSnapshotReader _snapshotReader;
+    private readonly IGameSnapshotCache _snapshotCache;
+    private readonly IGameRevisionStore _revisionStore;
     private readonly IGameResponseBuilder _responseBuilder;
     private readonly IGameEventPublisher _eventPublisher;
     private readonly IGameConnectionRegistry _connectionRegistry;
@@ -25,6 +28,9 @@ public sealed class GameCommandService : IGameCommandService
 
     public GameCommandService(
         IGameApiClient gameApiClient,
+        IGameSnapshotReader snapshotReader,
+        IGameSnapshotCache snapshotCache,
+        IGameRevisionStore revisionStore,
         IGameResponseBuilder responseBuilder,
         IGameEventPublisher eventPublisher,
         IGameConnectionRegistry connectionRegistry,
@@ -32,6 +38,9 @@ public sealed class GameCommandService : IGameCommandService
         IUpstreamErrorNormalizer errorNormalizer)
     {
         _gameApiClient = gameApiClient;
+        _snapshotReader = snapshotReader;
+        _snapshotCache = snapshotCache;
+        _revisionStore = revisionStore;
         _responseBuilder = responseBuilder;
         _eventPublisher = eventPublisher;
         _connectionRegistry = connectionRegistry;
@@ -54,6 +63,12 @@ public sealed class GameCommandService : IGameCommandService
         if (game is null)
         {
             return response.ToPassthrough(_errorNormalizer);
+        }
+
+        if (game.Id is long gameId)
+        {
+            var revision = await _revisionStore.GetCurrentRevisionAsync(gameId, cancellationToken);
+            GameSnapshotCacheSync.Seed(_snapshotCache, gameId, revision, response.Body);
         }
 
         var enriched = await _responseBuilder.BuildAsync(game, userId, cancellationToken);
@@ -87,7 +102,11 @@ public sealed class GameCommandService : IGameCommandService
             var leaveResponse = await _gameApiClient.RemoveGameMemberAsync(userId, gameId, memberUserId, cancellationToken);
             if (leaveResponse.IsSuccess)
             {
-                await _eventPublisher.PublishGameChangedAsync(gameId, userId, GameChangeActions.Leave, cancellationToken);
+                await _eventPublisher.PublishGameChangedAsync(
+                    gameId,
+                    userId,
+                    GameChangeActions.Leave,
+                    cancellationToken: cancellationToken);
             }
 
             return leaveResponse.IsNoContent
@@ -95,7 +114,7 @@ public sealed class GameCommandService : IGameCommandService
                 : leaveResponse.ToPassthrough(_errorNormalizer);
         }
 
-        var currentGame = await _gameApiClient.GetGameModelAsync(userId, gameId, cancellationToken);
+        var currentGame = await _snapshotReader.GetGameModelAsync(userId, gameId, cancellationToken);
         if (currentGame is null)
         {
             return AppOutcomes.NotFound("NOT_FOUND", "Game not found.");
@@ -197,7 +216,12 @@ public sealed class GameCommandService : IGameCommandService
         }
 
         var enriched = await _responseBuilder.BuildAsync(game, userId, cancellationToken);
-        await _eventPublisher.PublishGameChangedAsync(gameId, userId, action, cancellationToken);
+        await _eventPublisher.PublishGameChangedAsync(
+            gameId,
+            userId,
+            action,
+            response.Body,
+            cancellationToken);
         return AppOutcomes.Ok(enriched);
     }
 }

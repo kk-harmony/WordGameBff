@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WordGameBff.Domain.Models;
 
 namespace WordGameBff.Application.Realtime;
 
 /// <summary>
-/// Lightweight realtime notification. Clients fetch authoritative state via GET /api/games/{id}.
+/// Client-facing realtime notification. When <see cref="Game"/> is set, clients apply it
+/// directly; otherwise they fetch authoritative state via GET /api/games/{id}.
 /// </summary>
 public sealed class GameRealtimeMessage
 {
@@ -14,9 +16,35 @@ public sealed class GameRealtimeMessage
     public string? TriggeredBy { get; init; }
     public string? Action { get; init; }
 
+    /// <summary>Viewer-sanitized game snapshot. Omitted on oversized or snapshot-less events.</summary>
+    public Game? Game { get; init; }
+
     public string ToJson() => JsonSerializer.Serialize(this, RealtimeJson.Options);
     public static GameRealtimeMessage? FromJson(string json) =>
         JsonSerializer.Deserialize<GameRealtimeMessage>(json, RealtimeJson.Options);
+}
+
+/// <summary>
+/// Backplane payload. Separates fanout model, raw JSON for cache seeding, and explicit
+/// invalidation so "no push payload" is not confused with "clear the cache".
+/// </summary>
+public sealed class GameRealtimeEnvelope
+{
+    public required GameRealtimeMessage Notification { get; init; }
+
+    /// <summary>Raw upstream game for per-viewer fanout when push is enabled.</summary>
+    public Game? Snapshot { get; init; }
+
+    /// <summary>Upstream JSON used to seed the local cache (preferred over re-serializing Snapshot).</summary>
+    public string? SnapshotJson { get; init; }
+
+    /// <summary>When true, receiving instances must drop any cached body for this game.</summary>
+    public bool InvalidateCache { get; init; }
+
+    public string ToJson() => JsonSerializer.Serialize(this, RealtimeJson.Options);
+
+    public static GameRealtimeEnvelope? FromJson(string json) =>
+        JsonSerializer.Deserialize<GameRealtimeEnvelope>(json, RealtimeJson.Options);
 }
 
 public static class RealtimeJson
@@ -32,11 +60,12 @@ public static class RealtimeJson
 public interface IGameRealtimeTransport
 {
     Task PublishToGameAsync(long gameId, GameRealtimeMessage message, CancellationToken cancellationToken = default);
+    Task PublishToUserInGameAsync(long gameId, string userId, GameRealtimeMessage message, CancellationToken cancellationToken = default);
 }
 
 public interface IGameRealtimeBackplane
 {
-    Task PublishAsync(long gameId, GameRealtimeMessage message, CancellationToken cancellationToken = default);
+    Task PublishAsync(long gameId, GameRealtimeEnvelope envelope, CancellationToken cancellationToken = default);
 }
 
 public interface IGameConnectionRegistry
@@ -54,6 +83,7 @@ public interface IGameEventPublisher
         long gameId,
         string triggeredByUserId,
         string action,
+        string? snapshotJson = null,
         CancellationToken cancellationToken = default);
 }
 

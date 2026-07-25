@@ -1,9 +1,11 @@
+using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using WordGameBff.Application.Configuration;
+using WordGameBff.Application.Games;
 using WordGameBff.Application.Realtime;
 
 namespace WordGameBff.Infrastructure.Realtime.Postgres;
@@ -13,16 +15,19 @@ public sealed class PostgresBackplaneListener : BackgroundService
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
 
     private readonly RealtimeBackplaneOptions _options;
-    private readonly IGameRealtimeTransport _transport;
+    private readonly IGameSnapshotCache _snapshotCache;
+    private readonly IGameSnapshotFanout _fanout;
     private readonly ILogger<PostgresBackplaneListener> _logger;
 
     public PostgresBackplaneListener(
         IOptions<RealtimeOptions> options,
-        IGameRealtimeTransport transport,
+        IGameSnapshotCache snapshotCache,
+        IGameSnapshotFanout fanout,
         ILogger<PostgresBackplaneListener> logger)
     {
         _options = options.Value.Backplane;
-        _transport = transport;
+        _snapshotCache = snapshotCache;
+        _fanout = fanout;
         _logger = logger;
     }
 
@@ -98,13 +103,14 @@ public sealed class PostgresBackplaneListener : BackgroundService
         {
             try
             {
-                var message = GameRealtimeMessage.FromJson(payload);
-                if (message is null)
+                var envelope = ParseEnvelope(payload);
+                if (envelope is null)
                 {
                     continue;
                 }
 
-                await _transport.PublishToGameAsync(message.GameId, message, stoppingToken);
+                GameSnapshotCacheSync.Apply(_snapshotCache, envelope);
+                await _fanout.DispatchAsync(envelope, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -115,6 +121,28 @@ public sealed class PostgresBackplaneListener : BackgroundService
                 _logger.LogError(ex, "Failed to handle backplane notification");
             }
         }
+    }
+
+    private static GameRealtimeEnvelope? ParseEnvelope(string payload)
+    {
+        using var document = JsonDocument.Parse(payload);
+        if (document.RootElement.TryGetProperty("notification", out _))
+        {
+            return GameRealtimeEnvelope.FromJson(payload);
+        }
+
+        // Backward-compatible: older lightweight messages without an envelope wrapper.
+        var legacy = GameRealtimeMessage.FromJson(payload);
+        if (legacy is null)
+        {
+            return null;
+        }
+
+        return new GameRealtimeEnvelope
+        {
+            Notification = legacy,
+            Snapshot = null,
+        };
     }
 
     private static async Task AwaitCompletedAsync(Task dispatch, CancellationToken stoppingToken)

@@ -16,4 +16,12 @@ public sealed class SignalRGameRealtimeTransport : IGameRealtimeTransport
 
     public Task PublishToGameAsync(long gameId, GameRealtimeMessage message, CancellationToken cancellationToken = default) =>
         _hubContext.Clients.Group(GameHub.GetGroupName(gameId)).SendAsync(ReceiveMethod, message, cancellationToken);
+
+    public Task PublishToUserInGameAsync(
+        long gameId,
+        string userId,
+        GameRealtimeMessage message,
+        CancellationToken cancellationToken = default) =>
+        _hubContext.Clients.Group(GameHub.GetUserGroupName(gameId, userId))
+            .SendAsync(ReceiveMethod, message, cancellationToken);
 }

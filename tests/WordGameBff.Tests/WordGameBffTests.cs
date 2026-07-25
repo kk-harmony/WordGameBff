@@ -594,25 +594,30 @@ public class GameEventPublisherTests
     [Fact]
     public async Task PublishGameChanged_SendsLightweightNotification()
     {
-        Application.Realtime.GameRealtimeMessage? published = null;
+        Application.Realtime.GameRealtimeEnvelope? published = null;
         var backplane = new Mock<Application.Realtime.IGameRealtimeBackplane>();
-        backplane.Setup(x => x.PublishAsync(42, It.IsAny<Application.Realtime.GameRealtimeMessage>(), It.IsAny<CancellationToken>()))
-            .Callback<long, Application.Realtime.GameRealtimeMessage, CancellationToken>((_, msg, _) => published = msg)
+        backplane.Setup(x => x.PublishAsync(42, It.IsAny<Application.Realtime.GameRealtimeEnvelope>(), It.IsAny<CancellationToken>()))
+            .Callback<long, Application.Realtime.GameRealtimeEnvelope, CancellationToken>((_, envelope, _) => published = envelope)
             .Returns(Task.CompletedTask);
 
         var publisher = new Application.Realtime.GameEventPublisher(
             backplane.Object,
             new Infrastructure.Realtime.InMemoryGameRevisionStore(),
+            new Infrastructure.Games.MemoryGameSnapshotCache(
+                new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
+                Microsoft.Extensions.Options.Options.Create(new Application.Configuration.GameSnapshotOptions())),
+            Microsoft.Extensions.Options.Options.Create(new Application.Configuration.GameSnapshotOptions()),
             Moq.Mock.Of<Microsoft.Extensions.Logging.ILogger<Application.Realtime.GameEventPublisher>>());
 
         await publisher.PublishGameChangedAsync(42, "user1", Application.Realtime.GameChangeActions.Vote);
 
         Assert.NotNull(published);
-        Assert.Equal("gameChanged", published!.Type);
-        Assert.Equal("vote", published.Action);
-        Assert.Equal(42, published.GameId);
-        Assert.Equal("user1", published.TriggeredBy);
-        Assert.True(published.Revision > 0);
+        Assert.Equal("gameChanged", published!.Notification.Type);
+        Assert.Equal("vote", published.Notification.Action);
+        Assert.Equal(42, published.Notification.GameId);
+        Assert.Equal("user1", published.Notification.TriggeredBy);
+        Assert.True(published.Notification.Revision > 0);
+        Assert.Null(published.Snapshot);
     }
 }
 
@@ -708,13 +713,11 @@ public class GameProxyIntegrationTests
     public async Task GetRandomSecretWord_RequiresWaitingGameAdmin()
     {
         var gameApi = new Mock<Application.Games.IGameApiClient>();
-        gameApi.Setup(x => x.GetGameModelAsync(It.IsAny<string>(), 1, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string userId, long _, CancellationToken _) => new Domain.Models.Game
+        gameApi.Setup(x => x.GetGameAsync(It.IsAny<string>(), 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string userId, long _, CancellationToken _) => new Application.Games.GameApiResponse
             {
-                Id = 1,
-                Name = "Test Game",
-                AdminUserId = userId,
-                Status = "WAITING"
+                StatusCode = 200,
+                Body = $$"""{"id":1,"name":"Test Game","adminUserId":"{{userId}}","status":"WAITING","members":[{"userId":"{{userId}}","role":"ADMIN"}]}"""
             });
         gameApi.Setup(x => x.GetRandomSecretWordAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Application.Games.GameApiResponse
@@ -747,13 +750,11 @@ public class GameProxyIntegrationTests
     public async Task GetRandomSecretWord_DeniesNonAdmin()
     {
         var gameApi = new Mock<Application.Games.IGameApiClient>();
-        gameApi.Setup(x => x.GetGameModelAsync(It.IsAny<string>(), 1, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Domain.Models.Game
+        gameApi.Setup(x => x.GetGameAsync(It.IsAny<string>(), 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Application.Games.GameApiResponse
             {
-                Id = 1,
-                Name = "Test Game",
-                AdminUserId = "other-admin",
-                Status = "WAITING"
+                StatusCode = 200,
+                Body = """{"id":1,"name":"Test Game","adminUserId":"other-admin","status":"WAITING","members":[{"userId":"other-admin","role":"ADMIN"},{"userId":"member","role":"MEMBER"}]}"""
             });
 
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>

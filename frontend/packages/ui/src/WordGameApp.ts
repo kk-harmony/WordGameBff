@@ -11,6 +11,7 @@ import {
 } from '@wordgame/sdk';
 import { formatString, getStrings, type LocaleStrings } from './i18n/index.js';
 import { CoalescingAsyncRunner } from './coalescingAsync.js';
+import { handleGameChangedNotification } from './gameChangedHandler.js';
 import { GamePollScheduler } from './pollScheduler.js';
 import {
   buildActiveGameMetaLine,
@@ -658,7 +659,12 @@ export class WordGameApp {
   }
 
   private handleGameChanged(message?: GameRealtimeMessage): void {
-    void this.refreshGameFromServer(message?.action);
+    handleGameChangedNotification(message, {
+      applyGame: (game) => this.applyGameUpdate(sanitizeGame(game)),
+      refreshFromServer: (action) => {
+        void this.refreshGameFromServer(action);
+      },
+    });
   }
 
   private async connectRealtime(): Promise<void> {

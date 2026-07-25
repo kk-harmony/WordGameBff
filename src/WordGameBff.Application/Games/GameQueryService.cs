@@ -13,15 +13,18 @@ public interface IGameQueryService
 
 public sealed class GameQueryService : IGameQueryService
 {
+    private readonly IGameSnapshotReader _snapshotReader;
     private readonly IGameApiClient _gameApiClient;
     private readonly IGameResponseBuilder _responseBuilder;
     private readonly IUpstreamErrorNormalizer _errorNormalizer;
 
     public GameQueryService(
+        IGameSnapshotReader snapshotReader,
         IGameApiClient gameApiClient,
         IGameResponseBuilder responseBuilder,
         IUpstreamErrorNormalizer errorNormalizer)
     {
+        _snapshotReader = snapshotReader;
         _gameApiClient = gameApiClient;
         _responseBuilder = responseBuilder;
         _errorNormalizer = errorNormalizer;
@@ -32,7 +35,7 @@ public sealed class GameQueryService : IGameQueryService
         long gameId,
         CancellationToken cancellationToken = default)
     {
-        var response = await _gameApiClient.GetGameAsync(userId, gameId, cancellationToken);
+        var response = await _snapshotReader.GetGameAsync(userId, gameId, cancellationToken);
         return await ToSanitizedGameResultAsync(response, userId, cancellationToken);
     }
 
@@ -50,7 +53,7 @@ public sealed class GameQueryService : IGameQueryService
         long gameId,
         CancellationToken cancellationToken = default)
     {
-        var response = await _gameApiClient.GetGameAsync(userId, gameId, cancellationToken);
+        var response = await _snapshotReader.GetGameAsync(userId, gameId, cancellationToken);
         if (!response.IsSuccess)
         {
             return response.ToPassthrough(_errorNormalizer);
@@ -62,7 +65,7 @@ public sealed class GameQueryService : IGameQueryService
             return AppOutcomes.NotFound("NOT_FOUND", "Game not found.");
         }
 
-        if (!IsMember(userId, game))
+        if (!GameMembership.IsMember(userId, game))
         {
             return AppOutcomes.Forbidden("FORBIDDEN", "Not a member of this game.");
         }
@@ -111,8 +114,4 @@ public sealed class GameQueryService : IGameQueryService
         var enriched = await _responseBuilder.BuildAsync(game, userId, cancellationToken);
         return AppOutcomes.Ok(enriched);
     }
-
-    private static bool IsMember(string userId, Game game) =>
-        string.Equals(game.AdminUserId, userId, StringComparison.Ordinal)
-        || (game.Members?.Any(m => string.Equals(m.UserId, userId, StringComparison.Ordinal)) ?? false);
 }

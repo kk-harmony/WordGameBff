@@ -14,17 +14,20 @@ public interface ISecretWordService
 public sealed class SecretWordService : ISecretWordService
 {
     private readonly IGameApiClient _gameApiClient;
+    private readonly IGameSnapshotReader _snapshotReader;
     private readonly ISecretWordAccessPolicy _accessPolicy;
     private readonly ISecretWordResponseBuilder _responseBuilder;
     private readonly IUpstreamErrorNormalizer _errorNormalizer;
 
     public SecretWordService(
         IGameApiClient gameApiClient,
+        IGameSnapshotReader snapshotReader,
         ISecretWordAccessPolicy accessPolicy,
         ISecretWordResponseBuilder responseBuilder,
         IUpstreamErrorNormalizer errorNormalizer)
     {
         _gameApiClient = gameApiClient;
+        _snapshotReader = snapshotReader;
         _accessPolicy = accessPolicy;
         _responseBuilder = responseBuilder;
         _errorNormalizer = errorNormalizer;
@@ -75,7 +78,7 @@ public sealed class SecretWordService : ISecretWordService
         long gameId,
         CancellationToken cancellationToken)
     {
-        var game = await _gameApiClient.GetGameModelAsync(userId, gameId, cancellationToken);
+        var game = await _snapshotReader.GetGameModelAsync(userId, gameId, cancellationToken);
         if (game is null)
         {
             return AppOutcomes.NotFound("NOT_FOUND", "Game not found.");

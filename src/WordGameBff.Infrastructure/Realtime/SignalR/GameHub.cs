@@ -62,6 +62,7 @@ public sealed class GameHub : Hub
         Context.Items["gameId"] = gameId;
 
         await Groups.AddToGroupAsync(Context.ConnectionId, GetGroupName(gameId));
+        await Groups.AddToGroupAsync(Context.ConnectionId, GetUserGroupName(gameId, success.UserId));
         _ = RefreshPresenceLoopAsync(Context.ConnectionId, Context.ConnectionAborted);
         await base.OnConnectedAsync();
     }
@@ -88,6 +89,8 @@ public sealed class GameHub : Hub
     }
 
     public static string GetGroupName(long gameId) => $"game:{gameId}";
+
+    public static string GetUserGroupName(long gameId, string userId) => $"game:{gameId}:user:{userId}";
 
     private async Task RefreshPresenceLoopAsync(string connectionId, CancellationToken cancellationToken)
     {

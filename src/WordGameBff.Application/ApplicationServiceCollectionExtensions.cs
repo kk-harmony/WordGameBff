@@ -16,6 +16,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<IIdempotencyKeyGenerator, GuidIdempotencyKeyGenerator>();
         services.AddSingleton<ISecretWordAccessPolicy, SecretWordAccessPolicy>();
         services.AddSingleton<ISecretWordResponseBuilder, SecretWordResponseBuilder>();
+        services.AddSingleton<IGameSnapshotFanout, GameSnapshotFanout>();
+        services.AddSingleton<IGameSnapshotFetchGate, GameSnapshotFetchGate>();
+        services.AddScoped<IGameSnapshotReader, GameSnapshotReader>();
         services.AddScoped<IPowChallengeService, PowChallengeService>();
         services.AddScoped<ISessionTokenService, SessionTokenService>();
         services.AddScoped<ISessionLogoutService, SessionLogoutService>();

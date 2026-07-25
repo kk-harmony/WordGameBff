@@ -15,11 +15,15 @@ public class UpstreamGameMembershipVerifierTests
     [Fact]
     public async Task IsMember_WhenUpstreamAnswers_ReturnsResponseSuccess()
     {
-        var gameApi = new Mock<IGameApiClient>();
-        gameApi.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new GameApiResponse { StatusCode = 200, Body = "{}" });
+        var reader = new Mock<IGameSnapshotReader>();
+        reader.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GameApiResponse
+            {
+                StatusCode = 200,
+                Body = """{"id":7,"name":"G","adminUserId":"u1","members":[{"userId":"u1"}]}""",
+            });
 
-        var verifier = CreateVerifier(gameApi.Object);
+        var verifier = CreateVerifier(reader.Object);
 
         Assert.True(await verifier.IsMemberAsync(UserId, GameId));
     }
@@ -27,15 +31,15 @@ public class UpstreamGameMembershipVerifierTests
     [Fact]
     public async Task IsMember_WhenUpstreamIsSlow_FailsFast()
     {
-        var gameApi = new Mock<IGameApiClient>();
-        gameApi.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
+        var reader = new Mock<IGameSnapshotReader>();
+        reader.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
             .Returns(async (string _, long _, CancellationToken token) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), token);
                 return new GameApiResponse { StatusCode = 200, Body = "{}" };
             });
 
-        var verifier = CreateVerifier(gameApi.Object, timeoutSeconds: 1);
+        var verifier = CreateVerifier(reader.Object, timeoutSeconds: 1);
         var startedAt = DateTimeOffset.UtcNow;
 
         var isMember = await verifier.IsMemberAsync(UserId, GameId);
@@ -49,11 +53,11 @@ public class UpstreamGameMembershipVerifierTests
     [Fact]
     public async Task IsMember_WhenUpstreamThrows_ReturnsFalse()
     {
-        var gameApi = new Mock<IGameApiClient>();
-        gameApi.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
+        var reader = new Mock<IGameSnapshotReader>();
+        reader.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("upstream failure"));
 
-        var verifier = CreateVerifier(gameApi.Object);
+        var verifier = CreateVerifier(reader.Object);
 
         Assert.False(await verifier.IsMemberAsync(UserId, GameId));
     }
@@ -61,15 +65,15 @@ public class UpstreamGameMembershipVerifierTests
     [Fact]
     public async Task IsMember_WhenCallerCancels_PropagatesCancellation()
     {
-        var gameApi = new Mock<IGameApiClient>();
-        gameApi.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
+        var reader = new Mock<IGameSnapshotReader>();
+        reader.Setup(x => x.GetGameAsync(UserId, GameId, It.IsAny<CancellationToken>()))
             .Returns(async (string _, long _, CancellationToken token) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), token);
                 return new GameApiResponse { StatusCode = 200, Body = "{}" };
             });
 
-        var verifier = CreateVerifier(gameApi.Object);
+        var verifier = CreateVerifier(reader.Object);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
@@ -78,10 +82,10 @@ public class UpstreamGameMembershipVerifierTests
     }
 
     private static UpstreamGameMembershipVerifier CreateVerifier(
-        IGameApiClient gameApiClient,
+        IGameSnapshotReader snapshotReader,
         int timeoutSeconds = 3) =>
         new(
-            gameApiClient,
+            snapshotReader,
             Options.Create(new RealtimeOptions
             {
                 HubJoinUpstreamTimeoutSeconds = timeoutSeconds,
