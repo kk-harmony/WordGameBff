@@ -27,6 +27,11 @@ test.describe('CORS', () => {
         document.querySelector('word-game-widget')?.shadowRoot?.querySelector('[data-action="start-game"]') != null,
       { timeout: 120_000 },
     );
+    await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
+    await page.waitForFunction(
+      () => Object.keys(sessionStorage).some((key) => key.startsWith('wordgame:session:')),
+      { timeout: 120_000 },
+    );
 
     const result = await page.evaluate(async (apiBase) => {
       const key = Object.keys(sessionStorage).find((k) => k.startsWith('wordgame:session:'));

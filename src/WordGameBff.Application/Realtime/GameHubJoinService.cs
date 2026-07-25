@@ -1,8 +1,6 @@
 using Microsoft.Extensions.Options;
 using WordGameBff.Application.Auth;
 using WordGameBff.Application.Configuration;
-using WordGameBff.Application.Games;
-using WordGameBff.Application.Realtime;
 
 namespace WordGameBff.Application.Realtime;
 
@@ -34,18 +32,18 @@ public interface IGameHubJoinService
 public sealed class GameHubJoinService : IGameHubJoinService
 {
     private readonly ISessionTokenService _sessionTokenService;
-    private readonly IGameApiClient _gameApiClient;
+    private readonly IGameMembershipVerifier _membershipVerifier;
     private readonly IGameConnectionRegistry _connectionRegistry;
     private readonly RealtimeOptions _options;
 
     public GameHubJoinService(
         ISessionTokenService sessionTokenService,
-        IGameApiClient gameApiClient,
+        IGameMembershipVerifier membershipVerifier,
         IGameConnectionRegistry connectionRegistry,
         IOptions<RealtimeOptions> options)
     {
         _sessionTokenService = sessionTokenService;
-        _gameApiClient = gameApiClient;
+        _membershipVerifier = membershipVerifier;
         _connectionRegistry = connectionRegistry;
         _options = options.Value;
     }
@@ -62,8 +60,7 @@ public sealed class GameHubJoinService : IGameHubJoinService
             return new HubJoinFailure(HubJoinFailureReason.InvalidToken);
         }
 
-        var gameResponse = await _gameApiClient.GetGameAsync(validation.UserId, gameId, cancellationToken);
-        if (!gameResponse.IsSuccess)
+        if (!await _membershipVerifier.IsMemberAsync(validation.UserId, gameId, cancellationToken))
         {
             return new HubJoinFailure(HubJoinFailureReason.GameUnavailable);
         }

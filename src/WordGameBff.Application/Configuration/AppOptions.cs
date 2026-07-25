@@ -44,6 +44,9 @@ public sealed class RealtimeOptions
     public string BackplaneType { get; set; } = "PostgreSQL";
     public RealtimeBackplaneOptions Backplane { get; set; } = new();
     public int MaxConnectionsPerUser { get; set; } = 3;
+
+    /// <summary>Caps the upstream membership check on hub connect so a cold game API cannot stall the handshake.</summary>
+    public int HubJoinUpstreamTimeoutSeconds { get; set; } = 3;
 }
 
 public sealed class RealtimeBackplaneOptions

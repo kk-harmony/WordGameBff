@@ -45,3 +45,9 @@ primary_region = "iad"
     method = "GET"
     path = "/health/ready"
     timeout = "5s"
+
+# Declared so redeploys cannot drift back to the inherited 256MB, which left
+# roughly 35MB of headroom and kept the GC under constant pressure.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

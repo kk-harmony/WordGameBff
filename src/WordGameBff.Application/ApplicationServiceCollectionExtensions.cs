@@ -20,6 +20,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<ISessionTokenService, SessionTokenService>();
         services.AddScoped<ISessionLogoutService, SessionLogoutService>();
         services.AddScoped<IGameEventPublisher, GameEventPublisher>();
+        services.AddScoped<IGameMembershipVerifier, UpstreamGameMembershipVerifier>();
         services.AddScoped<IGameHubJoinService, GameHubJoinService>();
         services.AddScoped<IGameQueryService, GameQueryService>();
         services.AddScoped<IGameCommandService, GameCommandService>();

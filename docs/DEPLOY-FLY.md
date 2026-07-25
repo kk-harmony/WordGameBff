@@ -73,14 +73,44 @@ Manual alternative:
 
 ```bash
 fly deploy --remote-only
-# fly.toml already has min_machines_running = 2
+# fly.toml already has min_machines_running = 2 and [[vm]] memory = "512mb"
 ```
+
+### Upstream wordgames-api must stay warm
+
+The BFF proxies every game read and mutation to `wordgames-api`, and
+`GameHubJoinService` verifies membership there on each SignalR connect. If that
+app scales to zero, the first request after idle pays a JVM cold start — measured
+at ~20s versus ~0.1s warm — which surfaces as slow joins and stalled realtime
+updates.
+
+Keep at least one upstream machine from stopping:
+
+```bash
+# Always-on machine (equivalent to min_machines_running = 1)
+fly machine update <machine-id> -a wordgames-api --autostop=off --autostart
+
+# Remaining machines: suspend resumes far faster than a cold stop for a JVM
+fly machine update <machine-id> -a wordgames-api --autostop=suspend --autostart
+
+fly machine list -a wordgames-api   # expect one started, checks 1/1
+```
+
+Prefer setting `min_machines_running = 1` and `auto_stop_machines = "suspend"` in
+that app's own `fly.toml` so the setting survives its deploys. Co-locating it in
+`iad` also removes a cross-region hop, since the BFF runs there.
 
 ## 5. Verify
 
 ```bash
 curl https://wordgamebff.fly.dev/health/live
 curl https://wordgamebff.fly.dev/health/ready
+
+fly machine list -a wordgamebff   # expect shared-cpu-1x:512MB
+
+# Upstream should answer warm, not cold-start
+curl -s -o /dev/null -w 'total=%{time_total}s\n' \
+  https://wordgames-api.fly.dev/q/health/live
 
 curl -i -X OPTIONS 'https://wordgamebff.fly.dev/api/me' \
   -H 'Origin: https://wordgameui.netlify.app' \
@@ -98,6 +128,41 @@ Before go-live:
 2. Logout: `POST /auth/logout` then verify token rejected on subsequent requests
 3. Realtime: two browsers in the same game both receive `gameChanged` via SignalR
 4. SignalR: WebSocket connects over `wss://wordgamebff.fly.dev/hubs/game?...`
+
+## Load smoke
+
+The scheduled `Load Smoke` workflow runs ten concurrent clients against the
+hermetic stack. Run the same bounded check locally with:
+
+```bash
+./scripts/run-load-hermetic.sh
+```
+
+For a manual Fly check, create a waiting game and use a small VU count. Each VU
+mints a PoW session and joins the game during setup; the default of three stays
+below the production auth rate limit:
+
+```bash
+k6 run \
+  -e BFF_URL=https://wordgamebff.fly.dev \
+  -e GAME_ID=<waiting-game-id> \
+  -e VUS=3 \
+  load/fly-manual.js
+```
+
+For higher concurrency, supply comma-separated session tokens that are already
+members of the game. This avoids spending the production PoW/auth budget:
+
+```bash
+k6 run \
+  -e BFF_URL=https://wordgamebff.fly.dev \
+  -e GAME_ID=<game-id> \
+  -e SESSION_TOKENS='<token-1>,<token-2>,<token-3>' \
+  load/fly-manual.js
+```
+
+Both scripts fail when request errors reach 5%, `getGame` p95 reaches 2s, or
+SignalR handshake p95 reaches the 3s hub-join budget.
 
 ## Netlify embed CDN
 

@@ -6,6 +6,9 @@ obj/
 .vs/
 .idea/
 .DS_Store
+.nuget-http-cache/
+.bin/
+wordgames/
 
 # Podman local demo — built embed copy
 local/embed.js

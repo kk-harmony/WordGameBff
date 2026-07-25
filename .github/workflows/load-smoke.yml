@@ -1,0 +1,47 @@
+# Bounded hermetic concurrency smoke. Scheduled/manual so it does not gate every PR.
+name: Load Smoke
+
+on:
+  schedule:
+    - cron: '30 6 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: load-smoke
+  cancel-in-progress: true
+
+env:
+  WORDGAMES_REF: cfe8bed6b34548fbd79e11a18d409d68f4bbecf7
+  WORDGAMES_BUILD_CONTEXT: ./wordgames
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out wordgames service
+        uses: actions/checkout@v4
+        with:
+          repository: kk-harmony/wordgames
+          path: wordgames
+          ref: ${{ env.WORDGAMES_REF }}
+
+      - name: Start hermetic stack
+        run: ./scripts/ci-start-hermetic-stack.sh
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: '1.7.1'
+
+      - name: Run bounded load smoke
+        run: ./scripts/run-load-hermetic.sh
+        env:
+          BFF_URL: http://localhost:8080
+          VUS: '10'
+
+      - name: Show stack diagnostics
+        if: failure()
+        run: ./scripts/ci-dump-stack.sh
