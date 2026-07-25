@@ -2,6 +2,7 @@ import { ApiClient } from './api.js';
 import { UnauthorizedError } from './errors.js';
 import { createInlinePowWorker } from './pow-worker-inline.js';
 import type { PowWorkerResponse } from './pow-worker.js';
+import { readIdentity, writeIdentity } from './identity.js';
 import {
   clearSession,
   readSession,
@@ -81,6 +82,7 @@ export class AuthManager {
   private setSession(session: Session): void {
     this.session = session;
     writeSession(this.apiBase, session);
+    writeIdentity(this.apiBase, { userId: session.userId });
     this.callbacks.onSession?.(toPublicSession(session));
     this.scheduleReauth();
   }
@@ -146,7 +148,12 @@ export class AuthManager {
     try {
       const challenge = await this.api.getChallenge();
       const nonce = await this.solvePow(challenge.prefix, challenge.difficulty);
-      const session = await this.api.verifyChallenge(challenge.challengeId, nonce);
+      const resumeUserId = readIdentity(this.apiBase)?.userId;
+      const session = await this.api.verifyChallenge(
+        challenge.challengeId,
+        nonce,
+        resumeUserId,
+      );
       this.setSession(session);
       return session;
     } catch (err) {

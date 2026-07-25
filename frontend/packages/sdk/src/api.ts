@@ -169,8 +169,16 @@ export class ApiClient {
     return this.request<PowChallenge>('GET', '/auth/challenge');
   }
 
-  async verifyChallenge(challengeId: string, nonce: string): Promise<Session> {
-    return this.request<Session>('POST', '/auth/verify', { challengeId, nonce });
+  async verifyChallenge(
+    challengeId: string,
+    nonce: string,
+    userId?: string,
+  ): Promise<Session> {
+    return this.request<Session>('POST', '/auth/verify', {
+      challengeId,
+      nonce,
+      ...(userId ? { userId } : {}),
+    });
   }
 
   async logout(): Promise<void> {

@@ -30,7 +30,11 @@ public static class AuthEndpoints
         {
             try
             {
-                var result = await powService.VerifyAsync(request.ChallengeId, request.Nonce, cancellationToken);
+                var result = await powService.VerifyAsync(
+                    request.ChallengeId,
+                    request.Nonce,
+                    request.UserId,
+                    cancellationToken);
                 return Results.Ok(new
                 {
                     sessionToken = result.SessionToken,
@@ -58,5 +62,5 @@ public static class AuthEndpoints
         return app;
     }
 
-    private sealed record VerifyRequest(string ChallengeId, string Nonce);
+    private sealed record VerifyRequest(string ChallengeId, string Nonce, string? UserId = null);
 }

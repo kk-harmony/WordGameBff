@@ -1,3 +1,9 @@
+import {
+  clearBrowserValue,
+  readBrowserJson,
+  writeBrowserJson,
+} from '@wordgame/sdk';
+
 export interface StoredActiveGame {
   gameId: number;
   userId: string;
@@ -5,44 +11,28 @@ export interface StoredActiveGame {
 
 const STORAGE_PREFIX = 'wordgame:activeGame:';
 
-function storageKey(apiBase: string): string {
-  return `${STORAGE_PREFIX}${apiBase.replace(/\/$/, '')}`;
+function isActiveGame(value: unknown): value is StoredActiveGame {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const stored = value as StoredActiveGame;
+  return (
+    typeof stored.gameId === 'number' &&
+    Number.isFinite(stored.gameId) &&
+    stored.gameId > 0 &&
+    typeof stored.userId === 'string' &&
+    Boolean(stored.userId)
+  );
 }
 
 export function readActiveGame(apiBase: string): StoredActiveGame | null {
-  try {
-    const raw = sessionStorage.getItem(storageKey(apiBase));
-    if (!raw) {
-      return null;
-    }
-    const stored = JSON.parse(raw) as StoredActiveGame;
-    if (
-      typeof stored.gameId !== 'number' ||
-      !Number.isFinite(stored.gameId) ||
-      stored.gameId <= 0 ||
-      typeof stored.userId !== 'string' ||
-      !stored.userId
-    ) {
-      return null;
-    }
-    return stored;
-  } catch {
-    return null;
-  }
+  return readBrowserJson(STORAGE_PREFIX, apiBase, isActiveGame);
 }
 
 export function writeActiveGame(apiBase: string, active: StoredActiveGame): void {
-  try {
-    sessionStorage.setItem(storageKey(apiBase), JSON.stringify(active));
-  } catch {
-    // sessionStorage unavailable
-  }
+  writeBrowserJson(STORAGE_PREFIX, apiBase, active);
 }
 
 export function clearActiveGame(apiBase: string): void {
-  try {
-    sessionStorage.removeItem(storageKey(apiBase));
-  } catch {
-    // sessionStorage unavailable
-  }
+  clearBrowserValue(STORAGE_PREFIX, apiBase);
 }

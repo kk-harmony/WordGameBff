@@ -1,37 +1,38 @@
+import {
+  clearBrowserValue,
+  readBrowserJson,
+  writeBrowserJson,
+} from './browserStorage.js';
 import type { Session } from './types.js';
 
 const STORAGE_PREFIX = 'wordgame:session:';
 
-function storageKey(apiBase: string): string {
-  return `${STORAGE_PREFIX}${apiBase.replace(/\/$/, '')}`;
+function isSession(value: unknown): value is Session {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const session = value as Session;
+  return Boolean(session.sessionToken && session.userId && session.expiresAt);
 }
 
 export function readSession(apiBase: string): Session | null {
-  try {
-    const raw = sessionStorage.getItem(storageKey(apiBase));
-    if (!raw) {
-      return null;
-    }
-    const session = JSON.parse(raw) as Session;
-    if (!session.sessionToken || !session.userId || !session.expiresAt) {
-      return null;
-    }
-    if (new Date(session.expiresAt).getTime() <= Date.now()) {
-      sessionStorage.removeItem(storageKey(apiBase));
-      return null;
-    }
-    return session;
-  } catch {
+  const session = readBrowserJson(STORAGE_PREFIX, apiBase, isSession);
+  if (!session) {
     return null;
   }
+  if (new Date(session.expiresAt).getTime() <= Date.now()) {
+    clearBrowserValue(STORAGE_PREFIX, apiBase);
+    return null;
+  }
+  return session;
 }
 
 export function writeSession(apiBase: string, session: Session): void {
-  sessionStorage.setItem(storageKey(apiBase), JSON.stringify(session));
+  writeBrowserJson(STORAGE_PREFIX, apiBase, session);
 }
 
 export function clearSession(apiBase: string): void {
-  sessionStorage.removeItem(storageKey(apiBase));
+  clearBrowserValue(STORAGE_PREFIX, apiBase);
 }
 
 export function toPublicSession(session: Session): { userId: string; expiresAt: string } {

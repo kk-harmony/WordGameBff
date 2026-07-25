@@ -39,6 +39,7 @@ public sealed class PowChallengeService : IPowChallengeService
     public async Task<SessionTokenResult> VerifyAsync(
         string challengeId,
         string nonce,
+        string? userId = null,
         CancellationToken cancellationToken = default)
     {
         var challenge = await _challengeStore.GetAsync(challengeId, cancellationToken);
@@ -62,9 +63,14 @@ public sealed class PowChallengeService : IPowChallengeService
             throw new PowVerificationException("INVALID_NONCE", "Proof of work verification failed.");
         }
 
-        var userId = Guid.NewGuid().ToString();
-        return _sessionTokenService.CreateToken(userId);
+        return _sessionTokenService.CreateToken(ResolveSessionUserId(userId));
     }
+
+    /// <summary>Reuse a browser-stored GUID identity when valid; otherwise mint a new one.</summary>
+    public static string ResolveSessionUserId(string? requestedUserId) =>
+        Guid.TryParse(requestedUserId, out var parsed)
+            ? parsed.ToString()
+            : Guid.NewGuid().ToString();
 
     public static bool VerifyProof(string prefix, string nonce, int difficultyBits)
     {

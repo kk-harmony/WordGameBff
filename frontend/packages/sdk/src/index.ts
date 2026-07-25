@@ -15,6 +15,20 @@ export type { PowWorkerRequest, PowWorkerResponse } from './pow-worker.js';
 export { RealtimeClient, RECEIVE_METHOD, RECONNECT_DELAYS } from './realtime.js';
 export type { RealtimeCallbacks } from './realtime.js';
 export {
+  clearBrowserValue,
+  readBrowserJson,
+  readBrowserValue,
+  storageKey,
+  writeBrowserJson,
+  writeBrowserValue,
+} from './browserStorage.js';
+export {
+  clearIdentity,
+  readIdentity,
+  writeIdentity,
+} from './identity.js';
+export type { BrowserIdentity } from './identity.js';
+export {
   clearSession,
   readSession,
   toPublicSession,

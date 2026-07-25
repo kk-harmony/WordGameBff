@@ -37,6 +37,7 @@ import {
 import { canKickMember, isMemberOffline, KICK_MIN_MEMBERS } from './kick.js';
 import { resolveMemberRowActions } from './memberRowActions.js';
 import { clearActiveGame, readActiveGame, writeActiveGame } from './activeGame.js';
+import { canLeaveWaitingRoom } from './waitingRoomActions.js';
 
 export interface WordGameAppOptions {
   apiBase: string;
@@ -161,7 +162,6 @@ export class WordGameApp {
     void this.realtime?.dispose();
     this.realtime = null;
     this.lastGameFingerprint = null;
-    void this.auth.logout();
     this.auth.dispose();
     this.container.innerHTML = '';
   }
@@ -766,17 +766,20 @@ export class WordGameApp {
   }
 
   private async leaveWaitingRoom(): Promise<void> {
-    clearActiveGame(this.options.apiBase);
-    await this.withLoading(async (api) => {
+    const left = await this.withLoading(async (api) => {
       const userId = this.getCurrentUserId();
       if (this.game?.id && userId) {
         await api.removeGameMember(this.game.id, userId);
       }
-      this.clearGameSession();
-      this.screen = 'home';
-      this.homeView = 'tiles';
-      return undefined;
+      return true;
     });
+    if (!left) {
+      return;
+    }
+    clearActiveGame(this.options.apiBase);
+    this.clearGameSession();
+    this.screen = 'home';
+    this.homeView = 'tiles';
   }
 
   private applyGameUpdate(game: Game): void {
@@ -1110,7 +1113,7 @@ export class WordGameApp {
           </div>
         ` : ''}
         ${!isAdmin ? `<p class="wg-muted">${this.strings.waitingForAdmin}</p>` : ''}
-        <button type="button" class="wg-btn wg-btn--icon wg-btn-secondary" data-action="leave-waiting" aria-label="${this.escapeAttr(this.strings.leaveGameAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.leaveGame}</button>
+        ${canLeaveWaitingRoom(isAdmin) ? `<button type="button" class="wg-btn wg-btn--icon wg-btn-secondary" data-action="leave-waiting" aria-label="${this.escapeAttr(this.strings.leaveGameAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.leaveGame}</button>` : ''}
         ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
         <div class="wg-live" data-live aria-live="polite">${this.strings.waitingRoom}</div>
       </div>
@@ -1301,9 +1304,7 @@ export class WordGameApp {
         this.render();
         return;
       }
-      void this.ensureAuthThen('join', async () => {
-        await this.joinExistingGame(gameId);
-      });
+      void this.resumeOrJoinGame(gameId);
     });
 
     this.container.querySelector('[data-action="copy-game-id"]')?.addEventListener('click', () => {

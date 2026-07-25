@@ -60,6 +60,42 @@ public class PowChallengeTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public void ResolveSessionUserId_ValidGuid_ReusesIdentity()
+    {
+        var requested = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        Assert.Equal(requested, PowChallengeService.ResolveSessionUserId(requested));
+    }
+
+    [Fact]
+    public void ResolveSessionUserId_InvalidOrMissing_MintsNewGuid()
+    {
+        Assert.True(Guid.TryParse(PowChallengeService.ResolveSessionUserId(null), out _));
+        Assert.True(Guid.TryParse(PowChallengeService.ResolveSessionUserId(""), out _));
+        Assert.True(Guid.TryParse(PowChallengeService.ResolveSessionUserId("not-a-guid"), out _));
+        Assert.NotEqual(
+            PowChallengeService.ResolveSessionUserId("not-a-guid"),
+            PowChallengeService.ResolveSessionUserId("also-bad"));
+    }
+
+    [Fact]
+    public async Task Verify_WithExistingUserId_ReturnsSameUserId()
+    {
+        var client = _factory.CreateClient();
+        var challenge = await client.GetFromJsonAsync<JsonElement>("/auth/challenge");
+        var prefix = challenge.GetProperty("prefix").GetString()!;
+        var challengeId = challenge.GetProperty("challengeId").GetString()!;
+        var difficulty = challenge.GetProperty("difficulty").GetInt32();
+        var nonce = SolvePow(prefix, difficulty);
+        var userId = "11111111-2222-3333-4444-555555555555";
+
+        var response = await client.PostAsJsonAsync("/auth/verify", new { challengeId, nonce, userId });
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(userId, result.GetProperty("userId").GetString());
+    }
+
+    [Fact]
     public async Task Verify_InvalidNonce_Returns400()
     {
         var client = _factory.CreateClient();
