@@ -291,6 +291,13 @@
   min-width: 0;
 }
 
+.wg-member-row__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .wg-member-row--votable {
   padding: 0.5rem 0 !important;
 }
@@ -325,13 +332,6 @@
   min-height: 2.75rem;
   margin: 0;
   font-weight: 600;
-}
-
-.wg-member-row--kickable {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
 }
 
 .wg-vote-confirm {
@@ -479,13 +479,16 @@
 
   .wg-member-row--votable,
   .wg-member-row--kickable {
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .wg-member-row__actions {
+    width: 100%;
   }
 
   .wg-vote-row-btn,
   .wg-kick-row-btn {
-    width: 100%;
+    flex: 1 1 0;
     min-width: 0;
   }
 

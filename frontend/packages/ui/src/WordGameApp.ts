@@ -35,6 +35,7 @@ import {
   shouldShowWaitingForVotes,
 } from './voting.js';
 import { canKickMember, isMemberOffline, KICK_MIN_MEMBERS } from './kick.js';
+import { resolveMemberRowActions } from './memberRowActions.js';
 import { clearActiveGame, readActiveGame, writeActiveGame } from './activeGame.js';
 
 export interface WordGameAppOptions {
@@ -300,39 +301,18 @@ export class WordGameApp {
       showImpostor: options.showImpostor === true,
     });
     const badgeHtml = badges ? ` ${badges}` : '';
+    const playerLabel = this.formatPlayerLabel(member.userId, members);
+    const rowActions = resolveMemberRowActions({
+      votingMode: options.votingMode,
+      showVoteButton: options.showVoteButton,
+      confirmPending: options.confirmPending,
+      showKickButton: options.showKickButton,
+    });
+    const actions: string[] = [];
 
-    if (options.showKickButton) {
-      const playerLabel = this.formatPlayerLabel(member.userId, members);
-      return `
-        <li class="wg-member-row wg-member-row--kickable">
-          <span class="wg-member-row__label">${label}${badgeHtml}</span>
-          <button
-            type="button"
-            class="wg-btn wg-btn--icon wg-kick-row-btn"
-            data-action="kick-player"
-            data-user-id="${this.escapeAttr(member.userId)}"
-            aria-label="${this.escapeAttr(formatString(this.strings.kickPlayer, { player: playerLabel }))}"
-            ${this.loading ? 'disabled' : ''}
-          >${this.strings.kick}</button>
-        </li>
-      `;
-    }
-
-    if (!options.votingMode) {
-      return `
-        <li class="wg-member-row${options.showActiveTurn && options.activeTurnUserId === member.userId ? ' wg-member-row--active-turn' : ''}">
-          <span class="wg-member-row__label">${label}${badgeHtml}</span>
-        </li>
-      `;
-    }
-
-    if (options.showVoteButton) {
-      const playerLabel = this.formatPlayerLabel(member.userId, members);
-      const voteDisabled = this.loading || (this.pendingVoteUserId != null && !options.confirmPending);
-      return `
-        <li class="wg-member-row wg-member-row--votable${options.confirmPending ? ' wg-member-row--pending' : ''}">
-          <span class="wg-member-row__label">${label}${badgeHtml}</span>
-          ${options.confirmPending ? '' : `
+    if (rowActions.includes('vote')) {
+      const voteDisabled = this.loading || this.pendingVoteUserId != null;
+      actions.push(`
           <button
             type="button"
             class="wg-btn wg-btn--icon wg-vote-row-btn"
@@ -340,15 +320,35 @@ export class WordGameApp {
             data-user-id="${this.escapeAttr(member.userId)}"
             aria-label="${this.escapeAttr(formatString(this.strings.voteForPlayer, { player: playerLabel }))}"
             ${voteDisabled ? 'disabled' : ''}
-          >${this.strings.vote}</button>
-          `}
-        </li>
-      `;
+          >${this.strings.vote}</button>`);
     }
 
+    if (rowActions.includes('kick')) {
+      actions.push(`
+          <button
+            type="button"
+            class="wg-btn wg-btn--icon wg-kick-row-btn"
+            data-action="kick-player"
+            data-user-id="${this.escapeAttr(member.userId)}"
+            aria-label="${this.escapeAttr(formatString(this.strings.kickPlayer, { player: playerLabel }))}"
+            ${this.loading ? 'disabled' : ''}
+          >${this.strings.kick}</button>`);
+    }
+
+    const rowMods = [
+      options.showVoteButton && options.votingMode ? 'wg-member-row--votable' : '',
+      options.showKickButton ? 'wg-member-row--kickable' : '',
+      options.confirmPending ? 'wg-member-row--pending' : '',
+      !options.votingMode && !options.showKickButton && options.showActiveTurn && options.activeTurnUserId === member.userId
+        ? 'wg-member-row--active-turn'
+        : '',
+      options.votingMode && !options.showVoteButton && !options.showKickButton ? 'wg-member-row--static' : '',
+    ].filter(Boolean).join(' ');
+
     return `
-      <li class="wg-member-row wg-member-row--static">
+      <li class="wg-member-row${rowMods ? ` ${rowMods}` : ''}">
         <span class="wg-member-row__label">${label}${badgeHtml}</span>
+        ${actions.length > 0 ? `<span class="wg-member-row__actions">${actions.join('')}</span>` : ''}
       </li>
     `;
   }
