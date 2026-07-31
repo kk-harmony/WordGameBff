@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -36,6 +37,7 @@ public sealed class GameEventPublisher : IGameEventPublisher
         string? snapshotJson = null,
         CancellationToken cancellationToken = default)
     {
+        var started = Stopwatch.GetTimestamp();
         var revision = await _revisionStore.GetNextRevisionAsync(gameId, cancellationToken);
         var notification = new GameRealtimeMessage
         {
@@ -64,12 +66,13 @@ public sealed class GameEventPublisher : IGameEventPublisher
 
         GameSnapshotCacheSync.Apply(_snapshotCache, envelope);
         await _backplane.PublishAsync(gameId, envelope, cancellationToken);
-        _logger.LogDebug(
-            "Published gameChanged for game {GameId} revision {Revision} action {Action} push={HasPush} invalidate={Invalidate}",
+        _logger.LogInformation(
+            "Published gameChanged for game {GameId} revision {Revision} action {Action} push={HasPush} invalidate={Invalidate} in {ElapsedMs}ms",
             gameId,
             revision,
             action,
             envelope.Snapshot is not null,
-            envelope.InvalidateCache);
+            envelope.InvalidateCache,
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 }

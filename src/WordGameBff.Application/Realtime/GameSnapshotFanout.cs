@@ -1,6 +1,6 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using WordGameBff.Application.Games;
-using WordGameBff.Application.Realtime;
 using WordGameBff.Domain.Models;
 
 namespace WordGameBff.Application.Realtime;
@@ -38,11 +38,13 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
 
     public async Task DispatchAsync(GameRealtimeEnvelope envelope, CancellationToken cancellationToken = default)
     {
+        var started = Stopwatch.GetTimestamp();
         var notification = envelope.Notification;
         var snapshot = envelope.Snapshot;
         if (snapshot is null)
         {
             await _transport.PublishToGameAsync(notification.GameId, notification, cancellationToken);
+            LogCompleted(notification, "notify", viewerCount: 0, started);
             return;
         }
 
@@ -50,6 +52,7 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
         {
             await _selfVoteStore.SyncFromUpstreamAsync(snapshot, cancellationToken);
             var enriched = await _presenceEnricher.EnrichAsync(snapshot, cancellationToken);
+            var viewerCount = 0;
 
             foreach (var viewerUserId in GameMembership.ViewerUserIds(enriched))
             {
@@ -74,7 +77,10 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
                     viewerUserId,
                     viewerMessage,
                     cancellationToken);
+                viewerCount++;
             }
+
+            LogCompleted(notification, "push", viewerCount, started);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -97,6 +103,23 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
                     Action = notification.Action,
                 },
                 cancellationToken);
+            LogCompleted(notification, "fallback-notify", viewerCount: 0, started);
         }
+    }
+
+    private void LogCompleted(
+        GameRealtimeMessage notification,
+        string mode,
+        int viewerCount,
+        long started)
+    {
+        _logger.LogInformation(
+            "Realtime fanout for game {GameId} revision {Revision} action {Action} mode {Mode} viewers {ViewerCount} in {ElapsedMs}ms",
+            notification.GameId,
+            notification.Revision,
+            notification.Action,
+            mode,
+            viewerCount,
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 }

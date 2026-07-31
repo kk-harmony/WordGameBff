@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ public sealed class GameHub : Hub
 
     public override async Task OnConnectedAsync()
     {
+        var started = Stopwatch.GetTimestamp();
         var httpContext = Context.GetHttpContext();
         var gameIdRaw = httpContext?.Request.Query["gameId"].ToString();
         var accessToken = httpContext?.Request.Query["access_token"].ToString();
@@ -38,38 +40,61 @@ public sealed class GameHub : Hub
             return;
         }
 
-        var joinResult = await _hubJoinService.TryJoinAsync(
-            accessToken,
-            gameId,
-            Context.ConnectionId,
-            Context.ConnectionAborted);
-
-        if (joinResult is not HubJoinSuccess success)
+        try
         {
-            if (joinResult is HubJoinFailure failure)
+            var joinResult = await _hubJoinService.TryJoinAsync(
+                accessToken,
+                gameId,
+                Context.ConnectionId,
+                Context.ConnectionAborted);
+
+            if (joinResult is not HubJoinSuccess success)
             {
-                _logger.LogWarning(
-                    "Hub connect rejected for game {GameId}: {Reason}",
-                    gameId,
-                    failure.Reason);
+                if (joinResult is HubJoinFailure failure)
+                {
+                    _logger.LogWarning(
+                        "Hub connect rejected for game {GameId} connection {ConnectionId}: {Reason} in {ElapsedMs}ms",
+                        gameId,
+                        Context.ConnectionId,
+                        failure.Reason,
+                        ElapsedMs(started));
+                }
+
+                Context.Abort();
+                return;
             }
 
-            Context.Abort();
-            return;
+            Context.Items["userId"] = success.UserId;
+            Context.Items["gameId"] = gameId;
+
+            await Groups.AddToGroupAsync(Context.ConnectionId, GetGroupName(gameId));
+            await Groups.AddToGroupAsync(Context.ConnectionId, GetUserGroupName(gameId, success.UserId));
+            _ = RefreshPresenceLoopAsync(Context.ConnectionId, Context.ConnectionAborted);
+            await base.OnConnectedAsync();
+
+            _logger.LogInformation(
+                "Hub connected for game {GameId} user {UserId} connection {ConnectionId} in {ElapsedMs}ms",
+                gameId,
+                success.UserId,
+                Context.ConnectionId,
+                ElapsedMs(started));
         }
-
-        Context.Items["userId"] = success.UserId;
-        Context.Items["gameId"] = gameId;
-
-        await Groups.AddToGroupAsync(Context.ConnectionId, GetGroupName(gameId));
-        await Groups.AddToGroupAsync(Context.ConnectionId, GetUserGroupName(gameId, success.UserId));
-        _ = RefreshPresenceLoopAsync(Context.ConnectionId, Context.ConnectionAborted);
-        await base.OnConnectedAsync();
+        catch (OperationCanceledException) when (Context.ConnectionAborted.IsCancellationRequested)
+        {
+            _logger.LogInformation(
+                "Hub connect canceled for game {GameId} connection {ConnectionId} after {ElapsedMs}ms",
+                gameId,
+                Context.ConnectionId,
+                ElapsedMs(started));
+        }
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        if (Context.Items.ContainsKey("userId"))
+        var gameId = Context.Items.TryGetValue("gameId", out var gameIdObj) ? gameIdObj : null;
+        var userId = Context.Items.TryGetValue("userId", out var userIdObj) ? userIdObj : null;
+
+        if (userId is not null)
         {
             using var cleanupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             try
@@ -80,13 +105,36 @@ public sealed class GameHub : Hub
             {
                 _logger.LogWarning(
                     ex,
-                    "Hub disconnect cleanup failed for connection {ConnectionId}",
+                    "Hub disconnect cleanup failed for game {GameId} user {UserId} connection {ConnectionId}",
+                    gameId,
+                    userId,
                     Context.ConnectionId);
             }
         }
 
+        if (exception is null)
+        {
+            _logger.LogInformation(
+                "Hub disconnected for game {GameId} user {UserId} connection {ConnectionId} (clean)",
+                gameId,
+                userId,
+                Context.ConnectionId);
+        }
+        else
+        {
+            _logger.LogWarning(
+                exception,
+                "Hub disconnected for game {GameId} user {UserId} connection {ConnectionId} (error)",
+                gameId,
+                userId,
+                Context.ConnectionId);
+        }
+
         await base.OnDisconnectedAsync(exception);
     }
+
+    private static long ElapsedMs(long started) =>
+        (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
     public static string GetGroupName(long gameId) => $"game:{gameId}";
 

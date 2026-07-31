@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
@@ -101,16 +103,30 @@ public sealed class PostgresBackplaneListener : BackgroundService
     {
         await foreach (var payload in reader.ReadAllAsync(stoppingToken))
         {
+            var started = Stopwatch.GetTimestamp();
             try
             {
                 var envelope = ParseEnvelope(payload);
                 if (envelope is null)
                 {
+                    _logger.LogWarning(
+                        "Ignored unparseable backplane payload ({PayloadBytes} bytes)",
+                        Encoding.UTF8.GetByteCount(payload));
                     continue;
                 }
 
                 GameSnapshotCacheSync.Apply(_snapshotCache, envelope);
                 await _fanout.DispatchAsync(envelope, stoppingToken);
+
+                var notification = envelope.Notification;
+                _logger.LogInformation(
+                    "Backplane dispatched game {GameId} revision {Revision} action {Action} push={HasPush} bytes {PayloadBytes} in {ElapsedMs}ms",
+                    notification.GameId,
+                    notification.Revision,
+                    notification.Action,
+                    envelope.Snapshot is not null,
+                    Encoding.UTF8.GetByteCount(payload),
+                    (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -118,7 +134,10 @@ public sealed class PostgresBackplaneListener : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to handle backplane notification");
+                _logger.LogError(
+                    ex,
+                    "Failed to handle backplane notification after {ElapsedMs}ms",
+                    (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             }
         }
     }

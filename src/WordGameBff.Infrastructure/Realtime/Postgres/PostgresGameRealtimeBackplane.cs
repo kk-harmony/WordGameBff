@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -27,7 +28,9 @@ public sealed class PostgresGameRealtimeBackplane : IGameRealtimeBackplane
 
     public async Task PublishAsync(long gameId, GameRealtimeEnvelope envelope, CancellationToken cancellationToken = default)
     {
+        var started = Stopwatch.GetTimestamp();
         var payload = BuildPayload(envelope);
+        var payloadBytes = Encoding.UTF8.GetByteCount(payload);
 
         await using var connection = new NpgsqlConnection(_options.ConnectionString);
         await connection.OpenAsync(cancellationToken);
@@ -38,7 +41,13 @@ public sealed class PostgresGameRealtimeBackplane : IGameRealtimeBackplane
         command.Parameters.AddWithValue("payload", payload);
         await command.ExecuteNonQueryAsync(cancellationToken);
 
-        _logger.LogDebug("Published realtime message for game {GameId} to channel {Channel}", gameId, ChannelName);
+        _logger.LogInformation(
+            "Backplane notify for game {GameId} revision {Revision} action {Action} bytes {PayloadBytes} in {ElapsedMs}ms",
+            gameId,
+            envelope.Notification.Revision,
+            envelope.Notification.Action,
+            payloadBytes,
+            (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
     }
 
     internal string BuildPayload(GameRealtimeEnvelope envelope)
