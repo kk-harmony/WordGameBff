@@ -28,14 +28,15 @@ test.describe('CORS', () => {
       { timeout: 120_000 },
     );
     await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
+    // Sessions persist in localStorage (sessionStorage is only a one-time migrate source).
     await page.waitForFunction(
-      () => Object.keys(sessionStorage).some((key) => key.startsWith('wordgame:session:')),
+      () => Object.keys(localStorage).some((key) => key.startsWith('wordgame:session:')),
       { timeout: 120_000 },
     );
 
     const result = await page.evaluate(async (apiBase) => {
-      const key = Object.keys(sessionStorage).find((k) => k.startsWith('wordgame:session:'));
-      const raw = key ? sessionStorage.getItem(key) : null;
+      const key = Object.keys(localStorage).find((k) => k.startsWith('wordgame:session:'));
+      const raw = key ? localStorage.getItem(key) : null;
       const sessions = raw ? (JSON.parse(raw) as { sessionToken: string }) : null;
       if (!sessions?.sessionToken) {
         return { ok: false, status: 0 };

@@ -116,17 +116,17 @@ test.describe('reconnect', () => {
     await waitForWaitingRoom(page, gameId);
 
     await page.evaluate((id) => {
-      const keys = Object.keys(sessionStorage).filter((k) => k.startsWith('wordgame:session:'));
+      const keys = Object.keys(localStorage).filter((k) => k.startsWith('wordgame:session:'));
       const sessionKey = keys[0];
       if (!sessionKey) {
         return;
       }
-      const session = JSON.parse(sessionStorage.getItem(sessionKey) ?? '{}') as { userId?: string };
+      const session = JSON.parse(localStorage.getItem(sessionKey) ?? '{}') as { userId?: string };
       if (!session.userId) {
         return;
       }
       const apiBase = sessionKey.replace('wordgame:session:', '');
-      sessionStorage.setItem(
+      localStorage.setItem(
         `wordgame:activeGame:${apiBase}`,
         JSON.stringify({ gameId: id, userId: session.userId }),
       );
