@@ -11,7 +11,7 @@ Browser  →  WordGameBff (PoW + session JWT + SignalR)
                  ↓
             PostgreSQL (wordgame DB)
 
-WordGameBff instances share realtime events via PostgreSQL NOTIFY/LISTEN backplane.
+WordGameBff instances share realtime events via a Redis pub/sub backplane (Equinoctial.Redis).
 ```
 
 ### Layers
@@ -21,7 +21,7 @@ WordGameBff instances share realtime events via PostgreSQL NOTIFY/LISTEN backpla
 | `WordGameBff.Api` | HTTP endpoints, SignalR hub wiring, middleware |
 | `WordGameBff.Application` | PoW, session tokens, game event publishing, abstractions |
 | `WordGameBff.Domain` | Shared models |
-| `WordGameBff.Infrastructure` | CustomAuth, wordgames HTTP client, SignalR, Postgres backplane |
+| `WordGameBff.Infrastructure` | CustomAuth, wordgames HTTP client, SignalR, Redis backplane |
 
 ## Quick start
 
@@ -65,7 +65,7 @@ Use this to exercise the micro frontend on phones and tablets while developing l
    curl http://<LAN-IP>:8080/health
    ```
 
-For the Podman demo (`http://<LAN-IP>:3000`), the demo page uses the same dynamic `api-base` resolution.
+For the Podman demo (`http://<LAN-IP>:3100`), the demo page uses the same dynamic `api-base` resolution.
 
 In Development, the BFF also accepts CORS preflights from `http://` origins on loopback and private LAN IPs (e.g. `http://192.168.x.x:5173`).
 
@@ -88,7 +88,7 @@ Multi-instance testing:
 docker compose --profile multi-instance up --build
 ```
 
-Realtime clients connect with **WebSockets + skipNegotiation**, so SignalR does not need sticky sessions for the negotiate handshake. REST can round-robin; each WebSocket stays on one instance and realtime delivery fans out via the Postgres backplane.
+Realtime clients connect with **WebSockets + skipNegotiation**, so SignalR does not need sticky sessions for the negotiate handshake. REST can round-robin; each WebSocket stays on one instance and realtime delivery fans out via the Redis backplane.
 
 
 ### Podman + host PostgreSQL (recommended local full stack)
@@ -105,13 +105,13 @@ cp .env.example .env
 # Choose: 4) Init DB (first time), then 1) Up
 ```
 
-Open the demo: **http://localhost:3000** — plain HTML embedding `<word-game-widget>`.
+Open the demo: **http://localhost:3100** — plain HTML embedding `<word-game-widget>`.
 
 Verify:
 
 ```bash
-curl http://localhost:8080/health   # wordgamebff — OK
-curl http://localhost:3000/health   # demo nginx — OK
+curl http://localhost:8180/health   # wordgamebff — OK
+curl http://localhost:3100/health   # demo nginx — OK
 curl http://localhost:8081          # wordgames — should fail (not exposed)
 ```
 
@@ -134,8 +134,10 @@ Non-interactive: `./scripts/run-podman-local.sh up`
 | `Pow:ChallengeExpirySeconds` | Challenge TTL |
 | `Cors:AllowedOrigins` | Allowed browser origins |
 | `Realtime:Transport` | `SignalR` (default) |
-| `Realtime:BackplaneType` | `PostgreSQL` or `InMemory` |
-| `Realtime:Backplane:ConnectionString` | Postgres for NOTIFY/LISTEN |
+| `Realtime:BackplaneType` | `Redis` (production) or `InMemory` (development) |
+| `Realtime:Backplane:ConnectionString` | Redis connection string |
+| `Realtime:Backplane:ChannelName` | Pub/sub channel (default `wordgamebff_backplane`) |
+| `Stores:ConnectionString` | Postgres for shared BFF state (required when `Stores:Type=PostgreSQL`) |
 
 Environment variable form: `Section__Key` (e.g. `SESSION__SIGNINGKEY`).
 
@@ -239,7 +241,7 @@ Sensitive fields are stripped on `GET /api/games/{id}`: `impostorUserId` (until 
 
 ### Backplane
 
-PostgreSQL `NOTIFY wordgamebff_backplane` fan-out to all WordGameBff instances. Each instance delivers locally via `IGameRealtimeTransport` (SignalR groups).
+Redis pub/sub (`wordgamebff_backplane` channel) fan-out to all WordGameBff instances. Each instance delivers locally via `IGameRealtimeTransport` (SignalR groups), fanning out only to hub connections on that machine.
 
 ## Rate limiting
 
@@ -265,7 +267,7 @@ Returns `429` with `Retry-After` header.
 - **Embed CDN:** Netlify — [frontend/HOST-INTEGRATION.md](frontend/HOST-INTEGRATION.md), `frontend/netlify.toml`, and Actions **Deploy frontend**
 - **wordgames:** independent Fly app; `GameApi__BaseUrl` is set in [`fly.toml`](fly.toml) `[env]`
 
-Production uses Postgres for SignalR backplane and shared BFF state (schema `bff`: `bff.store`, `bff.game_revisions`). Multi-instance requires `Stores__Type=PostgreSQL` and `Realtime__BackplaneType=PostgreSQL`.
+Production uses Redis for the SignalR backplane and Postgres for shared BFF state (schema `bff`: `bff.store`, `bff.game_revisions`). Multi-instance requires `Stores__Type=PostgreSQL`, `Stores__ConnectionString`, and `Realtime__BackplaneType=Redis`.
 
 ## Tests
 

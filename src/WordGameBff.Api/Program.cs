@@ -57,18 +57,25 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 var realtimeOptions = builder.Configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>() ?? new RealtimeOptions();
-var usesPostgresBackplane = string.Equals(realtimeOptions.BackplaneType, "PostgreSQL", StringComparison.OrdinalIgnoreCase)
+var usesRedisBackplane = string.Equals(realtimeOptions.BackplaneType, "Redis", StringComparison.OrdinalIgnoreCase)
     && !string.IsNullOrWhiteSpace(realtimeOptions.Backplane.ConnectionString);
 var usesPostgresStores = StoreConnectionResolver.UsePostgreSqlStores(builder.Configuration);
 
 var healthChecks = builder.Services.AddHealthChecks();
-if (usesPostgresBackplane || usesPostgresStores)
+if (usesPostgresStores)
 {
     var postgresConnectionString = StoreConnectionResolver.Resolve(builder.Configuration);
     if (!string.IsNullOrWhiteSpace(postgresConnectionString))
     {
         healthChecks.AddNpgSql(postgresConnectionString, name: "postgres", tags: ["ready"]);
     }
+}
+
+if (usesRedisBackplane)
+{
+    healthChecks.AddCheck<WordGameBff.Infrastructure.Realtime.Redis.RedisBackplaneHealthCheck>(
+        "redis",
+        tags: ["ready"]);
 }
 
 var app = builder.Build();

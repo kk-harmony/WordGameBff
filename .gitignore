@@ -7,8 +7,20 @@ obj/
 .idea/
 .DS_Store
 .nuget-http-cache/
+.nuget/
+.nuget-packages/
+.dotnet-cli/
 .bin/
 wordgames/
+node_modules/
+
+# Local build / test scratch from agent or offline restore attempts
+build-*.txt
+test-*.txt
+testhost*
+restore-offline.txt
+vstest.diag
+nuget.offline.config
 
 # Podman local demo — built embed copy
 local/embed.js

@@ -7,8 +7,9 @@ primary_region = "iad"
 [env]
   ASPNETCORE_ENVIRONMENT = "Production"
   Realtime__Transport = "SignalR"
-  Realtime__BackplaneType = "PostgreSQL"
+  Realtime__BackplaneType = "Redis"
   Stores__Type = "PostgreSQL"
+  GameSnapshot__PushEnabled = "false"
   POW__DIFFICULTYBITS = "20"
   POW__CHALLENGEEXPIRYSECONDS = "300"
   # Non-secrets (CustomAuth pattern): URLs / CORS / public OIDC settings live here.

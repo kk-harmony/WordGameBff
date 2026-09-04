@@ -14,6 +14,14 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   wordgames:
     build:
       context: ${WORDGAMES_BUILD_CONTEXT:-../../learningProjects/wordgames}
@@ -61,11 +69,14 @@ services:
       Cors__AllowedOrigins__0: ${CORS__ALLOWEDORIGINS__0:-http://localhost:3000}
       Cors__AllowedOrigins__1: ${CORS__ALLOWEDORIGINS__1:-http://localhost:5173}
       Realtime__Transport: SignalR
-      Realtime__BackplaneType: PostgreSQL
-      Realtime__Backplane__ConnectionString: Host=db;Port=5432;Database=wordgamebff;Username=mainuser;Password=${QUARKUS_DATASOURCE_PASSWORD:-change-me}
+      Realtime__BackplaneType: Redis
+      Realtime__Backplane__ConnectionString: host=redis;port=6379
       Stores__Type: PostgreSQL
+      Stores__ConnectionString: Host=db;Port=5432;Database=wordgamebff;Username=mainuser;Password=${QUARKUS_DATASOURCE_PASSWORD:-change-me}
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       wordgames:
         condition: service_healthy
@@ -85,11 +96,14 @@ services:
       CustomAuth__Audience: ${CUSTOMAUTH__AUDIENCE:-wordgame}
       Session__SigningKey: ${SESSION__SIGNINGKEY:-local-docker-compose-bff-signing-key-32chars!}
       Realtime__Transport: SignalR
-      Realtime__BackplaneType: PostgreSQL
-      Realtime__Backplane__ConnectionString: Host=db;Port=5432;Database=wordgamebff;Username=mainuser;Password=${QUARKUS_DATASOURCE_PASSWORD:-change-me}
+      Realtime__BackplaneType: Redis
+      Realtime__Backplane__ConnectionString: host=redis;port=6379
       Stores__Type: PostgreSQL
+      Stores__ConnectionString: Host=db;Port=5432;Database=wordgamebff;Username=mainuser;Password=${QUARKUS_DATASOURCE_PASSWORD:-change-me}
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       wordgames:
         condition: service_healthy

@@ -41,7 +41,7 @@ public sealed class RealtimeOptions
 {
     public const string SectionName = "Realtime";
     public string Transport { get; set; } = "SignalR";
-    public string BackplaneType { get; set; } = "PostgreSQL";
+    public string BackplaneType { get; set; } = "Redis";
     public RealtimeBackplaneOptions Backplane { get; set; } = new();
     public int MaxConnectionsPerUser { get; set; } = 3;
 
@@ -59,13 +59,14 @@ public sealed class GameSnapshotOptions
     /// <summary>Absolute TTL for the in-memory raw-game cache.</summary>
     public int CacheTtlSeconds { get; set; } = 120;
 
-    /// <summary>Drop the snapshot from pg_notify when the envelope exceeds this many UTF-8 bytes.</summary>
+    /// <summary>Drop snapshotJson from backplane wire payload when it exceeds this many UTF-8 bytes.</summary>
     public int MaxPayloadBytes { get; set; } = 6000;
 }
 
 public sealed class RealtimeBackplaneOptions
 {
     public string ConnectionString { get; set; } = string.Empty;
+    public string ChannelName { get; set; } = "wordgamebff_backplane";
 }
 
 public sealed class StoreOptions

@@ -163,6 +163,67 @@ public sealed class PostgresKeyValueStore
         return result is not null and not DBNull;
     }
 
+    public async Task<bool> ExistsByNamespaceAndJsonFieldAsync(
+        string ns,
+        string jsonField,
+        string fieldValue,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = $"""
+            SELECT 1
+            FROM {BffDbSchema.StoreTable}
+            WHERE namespace = @namespace
+              AND (expires_at IS NULL OR expires_at > now())
+              AND value->>'{jsonField}' = @fieldValue
+            LIMIT 1
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("namespace", ns);
+        command.Parameters.AddWithValue("fieldValue", fieldValue);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        return result is not null and not DBNull;
+    }
+
+    public async Task<IReadOnlyList<string>> GetDistinctJsonFieldValuesAsync(
+        string ns,
+        string filterField,
+        string filterValue,
+        string selectField,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        var sql = $"""
+            SELECT DISTINCT value->>'{selectField}'
+            FROM {BffDbSchema.StoreTable}
+            WHERE namespace = @namespace
+              AND (expires_at IS NULL OR expires_at > now())
+              AND value->>'{filterField}' = @filterValue
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("namespace", ns);
+        command.Parameters.AddWithValue("filterValue", filterValue);
+
+        var values = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (!reader.IsDBNull(0))
+            {
+                values.Add(reader.GetString(0));
+            }
+        }
+
+        return values;
+    }
+
     public async Task DeleteExpiredAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = new NpgsqlConnection(_connectionString);

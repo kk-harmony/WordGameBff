@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using WordGameBff.Application.Games;
-using WordGameBff.Domain.Models;
 
 namespace WordGameBff.Application.Realtime;
 
@@ -20,6 +19,7 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
     private readonly IGameSanitizer _sanitizer;
     private readonly IGamePresenceEnricher _presenceEnricher;
     private readonly IGameSelfVoteStore _selfVoteStore;
+    private readonly IGameConnectionRegistry _connectionRegistry;
     private readonly ILogger<GameSnapshotFanout> _logger;
 
     public GameSnapshotFanout(
@@ -27,12 +27,14 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
         IGameSanitizer sanitizer,
         IGamePresenceEnricher presenceEnricher,
         IGameSelfVoteStore selfVoteStore,
+        IGameConnectionRegistry connectionRegistry,
         ILogger<GameSnapshotFanout> logger)
     {
         _transport = transport;
         _sanitizer = sanitizer;
         _presenceEnricher = presenceEnricher;
         _selfVoteStore = selfVoteStore;
+        _connectionRegistry = connectionRegistry;
         _logger = logger;
     }
 
@@ -40,6 +42,15 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
     {
         var started = Stopwatch.GetTimestamp();
         var notification = envelope.Notification;
+        if (!await _connectionRegistry.HasConnectionsForGameAsync(notification.GameId, cancellationToken))
+        {
+            _logger.LogDebug(
+                "Skipping fanout for game {GameId} revision {Revision}; no local hub connections",
+                notification.GameId,
+                notification.Revision);
+            return;
+        }
+
         var snapshot = envelope.Snapshot;
         if (snapshot is null)
         {
@@ -52,9 +63,12 @@ public sealed class GameSnapshotFanout : IGameSnapshotFanout
         {
             await _selfVoteStore.SyncFromUpstreamAsync(snapshot, cancellationToken);
             var enriched = await _presenceEnricher.EnrichAsync(snapshot, cancellationToken);
+            var connectedViewers = await _connectionRegistry.GetConnectedUserIdsForGameAsync(
+                notification.GameId,
+                cancellationToken);
             var viewerCount = 0;
 
-            foreach (var viewerUserId in GameMembership.ViewerUserIds(enriched))
+            foreach (var viewerUserId in connectedViewers)
             {
                 var sanitized = _sanitizer.Sanitize(enriched, viewerUserId);
                 var withSelfVote = await _selfVoteStore.ApplyViewerSelfVoteAsync(

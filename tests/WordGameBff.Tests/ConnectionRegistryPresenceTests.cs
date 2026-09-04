@@ -1,4 +1,5 @@
 using WordGameBff.Application.Realtime;
+using WordGameBff.Infrastructure.Realtime;
 
 namespace WordGameBff.Tests;
 
@@ -28,6 +29,23 @@ public class ConnectionRegistryPresenceTests
         clock.Advance(TimeSpan.FromMinutes(6));
 
         Assert.False(await registry.IsUserConnectedToGameAsync("u1", 9));
+    }
+
+    [Fact]
+    public async Task InMemoryRegistry_ReturnsDistinctConnectedUsersForGame()
+    {
+        var registry = new InMemoryGameConnectionRegistry();
+        await registry.TryRegisterAsync("c1", "u1", 9);
+        await registry.TryRegisterAsync("c2", "u1", 9);
+        await registry.TryRegisterAsync("c3", "u2", 9);
+        await registry.TryRegisterAsync("c4", "u3", 10);
+
+        var users = await registry.GetConnectedUserIdsForGameAsync(9);
+        Assert.Equal(2, users.Count);
+        Assert.Contains("u1", users);
+        Assert.Contains("u2", users);
+        Assert.True(await registry.HasConnectionsForGameAsync(9));
+        Assert.False(await registry.HasConnectionsForGameAsync(11));
     }
 
     private sealed class ControllableClock
@@ -86,6 +104,23 @@ public class ConnectionRegistryPresenceTests
         {
             PurgeExpired();
             return Task.FromResult(_entries.Values.Any(e => e.UserId == userId && e.GameId == gameId));
+        }
+
+        public Task<IReadOnlyList<string>> GetConnectedUserIdsForGameAsync(long gameId, CancellationToken cancellationToken = default)
+        {
+            PurgeExpired();
+            var userIds = _entries.Values
+                .Where(e => e.GameId == gameId)
+                .Select(e => e.UserId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<string>>(userIds);
+        }
+
+        public Task<bool> HasConnectionsForGameAsync(long gameId, CancellationToken cancellationToken = default)
+        {
+            PurgeExpired();
+            return Task.FromResult(_entries.Values.Any(e => e.GameId == gameId));
         }
 
         private void PurgeExpired()

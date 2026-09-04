@@ -94,5 +94,18 @@ public class GameHubJoinServiceTests
 
         public Task<bool> IsUserConnectedToGameAsync(string userId, long gameId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_entries.Values.Any(e => e.UserId == userId && e.GameId == gameId));
+
+        public Task<IReadOnlyList<string>> GetConnectedUserIdsForGameAsync(long gameId, CancellationToken cancellationToken = default)
+        {
+            var userIds = _entries.Values
+                .Where(e => e.GameId == gameId)
+                .Select(e => e.UserId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<string>>(userIds);
+        }
+
+        public Task<bool> HasConnectionsForGameAsync(long gameId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_entries.Values.Any(e => e.GameId == gameId));
     }
 }

@@ -64,4 +64,15 @@ public sealed class PostgresGameConnectionRegistry : IGameConnectionRegistry
                 ["gameId"] = gameId.ToString(),
             },
             cancellationToken);
+
+    public Task<IReadOnlyList<string>> GetConnectedUserIdsForGameAsync(long gameId, CancellationToken cancellationToken = default) =>
+        _store.GetDistinctJsonFieldValuesAsync(
+            Namespace,
+            filterField: "gameId",
+            filterValue: gameId.ToString(),
+            selectField: "userId",
+            cancellationToken);
+
+    public Task<bool> HasConnectionsForGameAsync(long gameId, CancellationToken cancellationToken = default) =>
+        _store.ExistsByNamespaceAndJsonFieldAsync(Namespace, "gameId", gameId.ToString(), cancellationToken);
 }

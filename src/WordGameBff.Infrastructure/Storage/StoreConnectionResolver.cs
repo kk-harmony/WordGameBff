@@ -8,13 +8,7 @@ public static class StoreConnectionResolver
     public static string Resolve(IConfiguration configuration)
     {
         var storeOptions = configuration.GetSection(StoreOptions.SectionName).Get<StoreOptions>() ?? new StoreOptions();
-        if (!string.IsNullOrWhiteSpace(storeOptions.ConnectionString))
-        {
-            return storeOptions.ConnectionString;
-        }
-
-        var realtime = configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>() ?? new RealtimeOptions();
-        return realtime.Backplane.ConnectionString;
+        return storeOptions.ConnectionString;
     }
 
     public static bool UsePostgreSqlStores(IConfiguration configuration)

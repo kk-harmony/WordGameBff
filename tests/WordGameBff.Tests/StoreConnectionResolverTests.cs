@@ -46,15 +46,15 @@ public class StoreConnectionResolverTests
     }
 
     [Fact]
-    public void Resolve_FallsBackToBackplaneConnectionString()
+    public void Resolve_DoesNotFallBackToRedisBackplaneConnectionString()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Realtime:Backplane:ConnectionString"] = "Host=backplane;",
+                ["Realtime:Backplane:ConnectionString"] = "host=redis;port=6379",
             })
             .Build();
 
-        Assert.Equal("Host=backplane;", StoreConnectionResolver.Resolve(configuration));
+        Assert.Equal(string.Empty, StoreConnectionResolver.Resolve(configuration));
     }
 }

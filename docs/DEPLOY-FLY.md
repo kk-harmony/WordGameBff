@@ -1,6 +1,6 @@
 # Deploy WordGameBff to Fly.io + embed to Netlify
 
-Multi-instance BFF using Fly Postgres for SignalR backplane and shared KV state.
+Multi-instance BFF using Redis for the SignalR backplane and Fly Postgres for shared KV state.
 Day-to-day deploys run via GitHub Actions after a one-time bootstrap.
 
 ## Prerequisites
@@ -9,16 +9,17 @@ Day-to-day deploys run via GitHub Actions after a one-time bootstrap.
 - CustomAuth M2M client id/secret
 - wordgames Fly app URL (default in [`fly.toml`](../fly.toml): `https://wordgames-api.fly.dev`)
 - Netlify site for the embed CDN (for CORS origins in `fly.toml`)
+- Redis reachable from the Fly app (Upstash via `fly redis create`, or equivalent)
 
 ## Config split (CustomAuth pattern)
 
 | Where | What |
 |-------|------|
-| [`fly.toml`](../fly.toml) `[env]` | Non-secrets: `GameApi__BaseUrl`, `CustomAuth__Authority` / `Audience`, `Session__Issuer` / `ExpiryMinutes`, `Cors__AllowedOrigins__*`, Realtime/Stores/PoW |
-| Fly **secrets** | Credentials only: `REALTIME__BACKPLANE__CONNECTIONSTRING` (Npgsql), `SESSION__SIGNINGKEY`, `CUSTOMAUTH__CLIENTID` / `CLIENTSECRET` |
+| [`fly.toml`](../fly.toml) `[env]` | Non-secrets: `GameApi__BaseUrl`, `CustomAuth__Authority` / `Audience`, `Session__Issuer` / `ExpiryMinutes`, `Cors__AllowedOrigins__*`, `Realtime__BackplaneType=Redis`, `Stores__Type`, PoW |
+| Fly **secrets** | Credentials only: `STORES__CONNECTIONSTRING` (Npgsql), `REALTIME__BACKPLANE__CONNECTIONSTRING` (Redis), `SESSION__SIGNINGKEY`, `CUSTOMAUTH__CLIENTID` / `CLIENTSECRET` |
 | GitHub Actions secrets | Deploy tokens only: `FLY_API_TOKEN`, `NETLIFY_AUTH_TOKEN`, `NETLIFY_SITE_ID` |
 
-`fly postgres attach` sets `DATABASE_URL` (URI). **Do not use it** for the BFF — same as CustomOAuthServer. Set an explicit Npgsql string with `SSL Mode=Require`.
+`fly postgres attach` sets `DATABASE_URL` (URI). **Do not use it** for the BFF — same as CustomOAuthServer. Set an explicit Npgsql string with `SSL Mode=Require` as `STORES__CONNECTIONSTRING`.
 
 ## 1. Netlify site (embed CDN)
 
@@ -33,26 +34,34 @@ Cors__AllowedOrigins__2 = "http://localhost:5173"
 Cors__AllowedOrigins__3 = "http://localhost:3000"
 ```
 
-## 2. Bootstrap Fly (app + Postgres + secrets)
+## 2. Bootstrap Fly (app + Postgres + Redis + secrets)
 
 ```bash
 cp .env.fly.example .env.fly
-# Fill CUSTOMAUTH__CLIENTID / CLIENTSECRET and REALTIME__BACKPLANE__CONNECTIONSTRING
-# (or FLY_PG_HOST / FLY_PG_DB / FLY_PG_USER / FLY_PG_PASSWORD)
+# Fill CUSTOMAUTH__CLIENTID / CLIENTSECRET, STORES__CONNECTIONSTRING (Npgsql),
+# and REALTIME__BACKPLANE__CONNECTIONSTRING (Redis: host=...;port=6379;password=...)
+# (or FLY_PG_HOST / FLY_PG_DB / FLY_PG_USER / FLY_PG_PASSWORD for Postgres)
 
 ./scripts/setup-fly.sh
 ```
 
 The script creates `wordgamebff` + `wordgamebff-db`, attaches Postgres, and sets credential secrets only.
 
-To build the Npgsql string yourself after create/attach:
+Provision Redis separately (example):
+
+```bash
+fly redis create
+# Copy host/port/password into REALTIME__BACKPLANE__CONNECTIONSTRING
+```
+
+To build the Npgsql stores string yourself after create/attach:
 
 ```bash
 fly postgres db list -a wordgamebff-db
 # → Host=...;Port=5432;Database=...;Username=...;Password=...;SSL Mode=Require
 ```
 
-Schema `bff` (`bff.store`, `bff.game_revisions`) is created automatically on first boot via `PostgresSchemaInitializer`.
+Schema `bff` (`bff.store`, `bff.game_revisions`) and connection-registry indexes are created automatically on first boot via `PostgresSchemaInitializer`. For existing databases, run [`scripts/migrate-bff-postgres-after-redis.sql`](../scripts/migrate-bff-postgres-after-redis.sql) once.
 
 ## 3. GitHub Actions secrets
 
@@ -178,7 +187,7 @@ See [frontend/HOST-INTEGRATION.md](../frontend/HOST-INTEGRATION.md). Deploy uses
 | `CustomAuth__Authority` / `Audience` | Public OIDC settings |
 | `Session__Issuer` / `ExpiryMinutes` | Session JWT metadata |
 | `Cors__AllowedOrigins__N` | Netlify CDN + host app origins |
-| `Realtime__*` / `Stores__Type` / `POW__*` | Production realtime + PoW |
+| `Realtime__BackplaneType` / `Stores__Type` / `POW__*` | Production realtime + stores + PoW |
 
 ### Fly secrets (credentials)
 
@@ -186,4 +195,5 @@ See [frontend/HOST-INTEGRATION.md](../frontend/HOST-INTEGRATION.md). Deploy uses
 |----------|---------|
 | `SESSION__SIGNINGKEY` | BFF session JWT HMAC key (>= 32 chars) |
 | `CUSTOMAUTH__CLIENTID` / `CLIENTSECRET` | M2M token exchange |
-| `REALTIME__BACKPLANE__CONNECTIONSTRING` | Npgsql Postgres (backplane + KV stores); ignore attach `DATABASE_URL` |
+| `STORES__CONNECTIONSTRING` | Npgsql Postgres for BFF KV + revisions; ignore attach `DATABASE_URL` |
+| `REALTIME__BACKPLANE__CONNECTIONSTRING` | Equinoctial Redis (`host=...;port=6379;password=...`) |

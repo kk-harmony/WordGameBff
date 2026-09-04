@@ -36,7 +36,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${WORDGAMEBFF_HTTP_PORT:-8080}:8080"
+      - "${WORDGAMEBFF_HTTP_PORT:-8180}:8080"
     extra_hosts:
       - "host.containers.internal:host-gateway"
     environment:
@@ -51,12 +51,13 @@ services:
       Session__Issuer: ${SESSION__ISSUER:-wordgamebff}
       Pow__DifficultyBits: ${POW__DIFFICULTYBITS:-20}
       Pow__ChallengeExpirySeconds: ${POW__CHALLENGEEXPIRYSECONDS:-300}
-      Cors__AllowedOrigins__0: ${CORS__ALLOWEDORIGINS__0:-http://localhost:3000}
+      Cors__AllowedOrigins__0: ${CORS__ALLOWEDORIGINS__0:-http://localhost:3100}
       Cors__AllowedOrigins__1: ${CORS__ALLOWEDORIGINS__1:-http://localhost:5173}
       Realtime__Transport: SignalR
-      Realtime__BackplaneType: PostgreSQL
-      Realtime__Backplane__ConnectionString: Host=${POSTGRES_HOST:-host.containers.internal};Port=${POSTGRES_PORT:-5432};Database=wordgamebff;Username=${POSTGRES_USER:-mainuser};Password=${POSTGRES_PASSWORD:-change-me}
+      Realtime__BackplaneType: Redis
+      Realtime__Backplane__ConnectionString: host=${REDIS_HOST:-host.containers.internal};port=${REDIS_PORT:-6379}
       Stores__Type: ${STORES__TYPE:-PostgreSQL}
+      Stores__ConnectionString: Host=${POSTGRES_HOST:-host.containers.internal};Port=${POSTGRES_PORT:-5432};Database=wordgamebff;Username=${POSTGRES_USER:-mainuser};Password=${POSTGRES_PASSWORD:-change-me}
     depends_on:
       wordgames:
         condition: service_healthy
@@ -72,7 +73,7 @@ services:
   demo:
     image: docker.io/library/nginx:alpine
     ports:
-      - "${DEMO_HTTP_PORT:-3000}:80"
+      - "${DEMO_HTTP_PORT:-3100}:80"
     volumes:
       - ./local:/usr/share/nginx/html:ro
       - ./local/nginx.conf:/etc/nginx/conf.d/default.conf:ro
