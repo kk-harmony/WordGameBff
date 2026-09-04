@@ -95,7 +95,7 @@ Realtime clients connect with **WebSockets + skipNegotiation**, so SignalR does 
 
 Uses **locally installed PostgreSQL** and **Podman** for wordgames + wordgamebff + an HTML demo page with the micro frontend. **CustomAuth** uses production `https://customauth.fly.dev/` only (no mocks).
 
-**Prerequisites:** Podman, PostgreSQL (running on `localhost:5432`), [wordgames](https://github.com) repo checkout, CustomAuth M2M credentials.
+**Prerequisites:** Podman, PostgreSQL (running on `localhost:5432`), [wordgames](https://github.com) repo checkout, CustomAuth M2M credentials. Redis is optional: if nothing answers on `localhost:6379`, the script starts a **2-node Redis Cluster** (`redis-1` / `redis-2`) in Podman.
 
 ```bash
 cp .env.example .env
@@ -115,7 +115,7 @@ curl http://localhost:3100/health   # demo nginx — OK
 curl http://localhost:8081          # wordgames — should fail (not exposed)
 ```
 
-Containers connect to host Postgres via `host.containers.internal`. Databases `wordgame` and `wordgamebff` are created on the host (not in Podman).
+Containers connect to host Postgres via `host.containers.internal`. Databases `wordgame` and `wordgamebff` are created on the host (not in Podman). Redis backplane uses existing host Redis when available; otherwise `cluster://redis-1:6379,redis-2:6379` on the compose network (host debug ports `6479` / `6480`).
 
 Non-interactive: `./scripts/run-podman-local.sh up`
 

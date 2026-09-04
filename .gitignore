@@ -24,3 +24,4 @@ nuget.offline.config
 
 # Podman local demo — built embed copy
 local/embed.js
+local/.managed-redis

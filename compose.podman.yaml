@@ -1,8 +1,64 @@
 # Podman local stack: wordgames + WordGameBff + HTML demo against host PostgreSQL.
 # Run via: ./scripts/run-podman-local.sh
 # CustomAuth: production https://customauth.fly.dev/ only (no mocks).
+# Redis: script reuses host Redis when reachable; otherwise starts redis-1/redis-2
+#         (profile managed-redis) as a 2-node Redis Cluster on the compose network.
 
 services:
+  redis-1:
+    profiles: ["managed-redis"]
+    image: docker.io/library/redis:7
+    command:
+      - redis-server
+      - --port
+      - "6379"
+      - --cluster-enabled
+      - "yes"
+      - --cluster-config-file
+      - nodes.conf
+      - --cluster-node-timeout
+      - "5000"
+      - --appendonly
+      - "yes"
+      - --protected-mode
+      - "no"
+    ports:
+      - "${REDIS_CLUSTER_PORT_1:-6479}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    labels:
+      io.podman.compose.project: wordgamebff-local
+
+  redis-2:
+    profiles: ["managed-redis"]
+    image: docker.io/library/redis:7
+    command:
+      - redis-server
+      - --port
+      - "6379"
+      - --cluster-enabled
+      - "yes"
+      - --cluster-config-file
+      - nodes.conf
+      - --cluster-node-timeout
+      - "5000"
+      - --appendonly
+      - "yes"
+      - --protected-mode
+      - "no"
+    ports:
+      - "${REDIS_CLUSTER_PORT_2:-6480}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    labels:
+      io.podman.compose.project: wordgamebff-local
+
   wordgames:
     build:
       context: ${WORDGAMES_BUILD_CONTEXT:-../../learningProjects/wordgames}
@@ -55,7 +111,7 @@ services:
       Cors__AllowedOrigins__1: ${CORS__ALLOWEDORIGINS__1:-http://localhost:5173}
       Realtime__Transport: SignalR
       Realtime__BackplaneType: Redis
-      Realtime__Backplane__ConnectionString: host=${REDIS_HOST:-host.containers.internal};port=${REDIS_PORT:-6379}
+      Realtime__Backplane__ConnectionString: ${REALTIME__BACKPLANE__CONNECTIONSTRING:-host=${REDIS_HOST:-host.containers.internal};port=${REDIS_PORT:-6379}}
       Stores__Type: ${STORES__TYPE:-PostgreSQL}
       Stores__ConnectionString: Host=${POSTGRES_HOST:-host.containers.internal};Port=${POSTGRES_PORT:-5432};Database=wordgamebff;Username=${POSTGRES_USER:-mainuser};Password=${POSTGRES_PASSWORD:-change-me}
     depends_on:

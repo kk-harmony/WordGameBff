@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # WordGameBff local stack: Podman (wordgames + wordgamebff + demo) + host PostgreSQL.
+# Redis: reuse localhost:REDIS_PORT if reachable; else deploy a 2-node Redis Cluster in Podman.
 # Usage: ./scripts/run-podman-local.sh          # interactive menu
 #        ./scripts/run-podman-local.sh up       # non-interactive
 # CustomAuth: production https://customauth.fly.dev/ only (no mocks).
@@ -16,6 +17,7 @@ LOCAL_DIR="${REPO_ROOT}/local"
 EMBED_SRC="${REPO_ROOT}/frontend/dist/embed/v1.0.0/embed.js"
 EMBED_DST="${LOCAL_DIR}/embed.js"
 FRONTEND_DIR="${REPO_ROOT}/frontend"
+REDIS_MANAGED_FLAG="${LOCAL_DIR}/.managed-redis"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -53,8 +55,12 @@ load_env() {
   POSTGRES_PORT="${POSTGRES_PORT:-5432}"
   POSTGRES_USER="${POSTGRES_USER:-mainuser}"
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-${QUARKUS_DATASOURCE_PASSWORD:-}}"
-  WORDGAMEBFF_HTTP_PORT="${WORDGAMEBFF_HTTP_PORT:-8080}"
-  DEMO_HTTP_PORT="${DEMO_HTTP_PORT:-3000}"
+  WORDGAMEBFF_HTTP_PORT="${WORDGAMEBFF_HTTP_PORT:-8180}"
+  DEMO_HTTP_PORT="${DEMO_HTTP_PORT:-3100}"
+  REDIS_HOST="${REDIS_HOST:-host.containers.internal}"
+  REDIS_PORT="${REDIS_PORT:-6379}"
+  REDIS_CLUSTER_PORT_1="${REDIS_CLUSTER_PORT_1:-6479}"
+  REDIS_CLUSTER_PORT_2="${REDIS_CLUSTER_PORT_2:-6480}"
   WORDGAMES_BUILD_CONTEXT="${WORDGAMES_BUILD_CONTEXT:-../../learningProjects/wordgames}"
 
   if [[ -z "${CUSTOMAUTH__CLIENTID:-}" || -z "${CUSTOMAUTH__CLIENTSECRET:-}" ]]; then
@@ -80,10 +86,17 @@ load_env() {
     exit 1
   fi
 
+  # Default standalone backplane target (overridden by ensure_redis when deploying a cluster).
+  if [[ -z "${REALTIME__BACKPLANE__CONNECTIONSTRING:-}" ]]; then
+    REALTIME__BACKPLANE__CONNECTIONSTRING="host=${REDIS_HOST};port=${REDIS_PORT}"
+  fi
+
   export WORDGAMES_BUILD_CONTEXT="$(cd "${REPO_ROOT}" && cd "${WORDGAMES_BUILD_CONTEXT}" && pwd)"
   export POSTGRES_HOST POSTGRES_PORT POSTGRES_USER POSTGRES_PASSWORD
   export QUARKUS_DATASOURCE_PASSWORD="${POSTGRES_PASSWORD}"
   export WORDGAMEBFF_HTTP_PORT DEMO_HTTP_PORT
+  export REDIS_HOST REDIS_PORT REDIS_CLUSTER_PORT_1 REDIS_CLUSTER_PORT_2
+  export REALTIME__BACKPLANE__CONNECTIONSTRING
 }
 
 COMPOSE_CMD=()
@@ -157,6 +170,147 @@ require_postgres() {
     error "Local PostgreSQL is not running on localhost:${POSTGRES_PORT}."
     error "Start PostgreSQL, then try again."
     exit 1
+  fi
+}
+
+redis_cli_ping() {
+  local host="$1"
+  local port="$2"
+  if command -v redis-cli >/dev/null 2>&1; then
+    redis-cli -h "${host}" -p "${port}" ping 2>/dev/null | grep -q PONG
+    return $?
+  fi
+
+  # Fallback: ephemeral redis-cli via Podman (reaches host Redis through host.containers.internal).
+  local probe_host="${host}"
+  if [[ "${host}" == "localhost" || "${host}" == "127.0.0.1" ]]; then
+    probe_host="host.containers.internal"
+  fi
+  podman run --rm --quiet docker.io/library/redis:7 \
+    redis-cli -h "${probe_host}" -p "${port}" ping 2>/dev/null | grep -q PONG
+}
+
+host_redis_ready() {
+  redis_cli_ping "localhost" "${REDIS_PORT}"
+}
+
+compose_redis_ready() {
+  local service="$1"
+  compose exec -T "${service}" redis-cli ping 2>/dev/null | grep -q PONG
+}
+
+wait_for_compose_redis() {
+  local service="$1"
+  local timeout="${2:-60}"
+  local elapsed=0
+  while [[ "${elapsed}" -lt "${timeout}" ]]; do
+    if compose_redis_ready "${service}"; then
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  return 1
+}
+
+cluster_already_ok() {
+  compose exec -T redis-1 redis-cli CLUSTER INFO 2>/dev/null | grep -q "cluster_state:ok"
+}
+
+init_managed_redis_cluster() {
+  if cluster_already_ok; then
+    info "Managed Redis cluster already initialized."
+    return 0
+  fi
+
+  info "Initializing 2-node Redis Cluster (redis-1 + redis-2)..."
+  local redis2_ip
+  redis2_ip="$(compose exec -T redis-2 hostname -i 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+  if [[ -z "${redis2_ip}" ]]; then
+    error "Could not resolve redis-2 container IP for CLUSTER MEET."
+    exit 1
+  fi
+
+  compose exec -T redis-1 redis-cli CLUSTER MEET "${redis2_ip}" 6379 >/dev/null
+  sleep 1
+
+  # Split hash slots across the two masters (Redis Cluster create requires 3+ via redis-cli).
+  compose exec -T redis-1 sh -c 'seq 0 8191 | xargs -n 100 redis-cli CLUSTER ADDSLOTS' >/dev/null
+  compose exec -T redis-2 sh -c 'seq 8192 16383 | xargs -n 100 redis-cli CLUSTER ADDSLOTS' >/dev/null
+
+  local timeout=30
+  local elapsed=0
+  while [[ "${elapsed}" -lt "${timeout}" ]]; do
+    if cluster_already_ok; then
+      info "Redis cluster is ready (cluster_state:ok)."
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  error "Managed Redis cluster did not reach cluster_state:ok within ${timeout}s."
+  compose logs redis-1 redis-2 || true
+  exit 1
+}
+
+start_managed_redis_cluster() {
+  info "No Redis on localhost:${REDIS_PORT} — deploying 2-node Redis Cluster via Podman..."
+  if ! compose --profile managed-redis up -d redis-1 redis-2; then
+    warn "Compose --profile failed; starting redis-1/redis-2 by name..."
+    compose up -d redis-1 redis-2
+  fi
+
+  if ! wait_for_compose_redis redis-1 || ! wait_for_compose_redis redis-2; then
+    error "Managed Redis nodes did not become healthy."
+    compose logs redis-1 redis-2 || true
+    exit 1
+  fi
+
+  init_managed_redis_cluster
+
+  REALTIME__BACKPLANE__CONNECTIONSTRING="cluster://redis-1:6379,redis-2:6379"
+  export REALTIME__BACKPLANE__CONNECTIONSTRING
+  mkdir -p "${LOCAL_DIR}"
+  echo "managed" > "${REDIS_MANAGED_FLAG}"
+  info "Using managed Redis cluster: ${REALTIME__BACKPLANE__CONNECTIONSTRING}"
+  info "Host debug ports: localhost:${REDIS_CLUSTER_PORT_1}, localhost:${REDIS_CLUSTER_PORT_2}"
+}
+
+ensure_redis() {
+  if host_redis_ready; then
+    REALTIME__BACKPLANE__CONNECTIONSTRING="host=${REDIS_HOST};port=${REDIS_PORT}"
+    export REALTIME__BACKPLANE__CONNECTIONSTRING
+    rm -f "${REDIS_MANAGED_FLAG}"
+    info "Using existing Redis on localhost:${REDIS_PORT} (${REALTIME__BACKPLANE__CONNECTIONSTRING})"
+    return 0
+  fi
+
+  # Prefer an already-running managed cluster from a previous up.
+  if compose_redis_ready redis-1 2>/dev/null && compose_redis_ready redis-2 2>/dev/null; then
+    init_managed_redis_cluster
+    REALTIME__BACKPLANE__CONNECTIONSTRING="cluster://redis-1:6379,redis-2:6379"
+    export REALTIME__BACKPLANE__CONNECTIONSTRING
+    mkdir -p "${LOCAL_DIR}"
+    echo "managed" > "${REDIS_MANAGED_FLAG}"
+    info "Reusing managed Redis cluster: ${REALTIME__BACKPLANE__CONNECTIONSTRING}"
+    return 0
+  fi
+
+  start_managed_redis_cluster
+}
+
+redis_status_line() {
+  if host_redis_ready; then
+    info "Redis: existing host instance (localhost:${REDIS_PORT})"
+  elif [[ -f "${REDIS_MANAGED_FLAG}" ]] || compose_redis_ready redis-1 2>/dev/null; then
+    if cluster_already_ok 2>/dev/null; then
+      info "Redis: managed 2-node cluster (redis-1/redis-2, host :${REDIS_CLUSTER_PORT_1}/:${REDIS_CLUSTER_PORT_2})"
+    else
+      warn "Redis: managed containers present but cluster not ok"
+    fi
+  else
+    warn "Redis: not reachable"
   fi
 }
 
@@ -255,9 +409,10 @@ cmd_build() {
 cmd_up() {
   require_postgres
   ensure_databases
+  ensure_redis
   ensure_embed
   info "Building and starting wordgames + wordgamebff + demo..."
-  compose up --build -d
+  compose up --build -d wordgames wordgamebff demo
   wait_for_wordgamebff
   print_stack_urls
 }
@@ -268,6 +423,7 @@ print_stack_urls() {
   echo "  Demo:        http://localhost:${DEMO_HTTP_PORT}  (HTML + micro frontend)"
   echo "  WordGameBff: http://localhost:${WORDGAMEBFF_HTTP_PORT}/health"
   echo "  wordgames: internal only (curl http://localhost:8081 should fail)"
+  echo "  Redis:       ${REALTIME__BACKPLANE__CONNECTIONSTRING}"
   echo ""
   echo "CustomAuth: ${CUSTOMAUTH__AUTHORITY:-https://customauth.fly.dev/}"
 }
@@ -276,9 +432,10 @@ cmd_rebuild() {
   cmd_down || true
   require_postgres
   ensure_databases
+  ensure_redis
   ensure_embed
   cmd_build --no-cache
-  compose up -d
+  compose up -d wordgames wordgamebff demo
   wait_for_wordgamebff
   print_stack_urls
 }
@@ -289,21 +446,24 @@ cmd_restart() {
 
 cmd_down() {
   info "Stopping containers..."
-  if ! compose down; then
+  # Include managed-redis profile so redis-1/redis-2 are removed when we started them.
+  if ! compose --profile managed-redis down; then
     error "Failed to stop containers. If Podman was disconnected, run: ./scripts/run-podman-local.sh restart"
     exit 1
   fi
-  info "Containers stopped. Host PostgreSQL is still running."
+  rm -f "${REDIS_MANAGED_FLAG}"
+  info "Containers stopped. Host PostgreSQL / host Redis (if any) are still running."
 }
 
 cmd_status() {
-  compose ps
+  compose --profile managed-redis ps
   echo ""
   if pg_ready; then
     info "Host PostgreSQL: running (localhost:${POSTGRES_PORT})"
   else
     warn "Host PostgreSQL: not reachable"
   fi
+  redis_status_line
   if curl -sf "http://localhost:${WORDGAMEBFF_HTTP_PORT}/health" >/dev/null 2>&1; then
     info "WordGameBff health: OK"
   else
@@ -342,6 +502,8 @@ cmd_health() {
     warn "Demo: not responding"
   fi
 
+  redis_status_line
+
   info "Checking wordgames is NOT exposed on host :8081..."
   if curl -sf --connect-timeout 2 "http://localhost:8081/q/health/ready" >/dev/null 2>&1; then
     warn "wordgames responded on localhost:8081 (expected internal-only)"
@@ -379,8 +541,8 @@ show_menu() {
   echo ""
   echo "WordGameBff local stack (Podman + host PostgreSQL)"
   echo ""
-  echo "  1) Up        — preflight Postgres, build + start wordgames + wordgamebff + demo"
-  echo "  2) Down      — stop and remove containers"
+  echo "  1) Up        — preflight Postgres/Redis, build + start wordgames + wordgamebff + demo"
+  echo "  2) Down      — stop and remove containers (incl. managed Redis cluster if started)"
   echo "  3) Restart   — down then up"
   echo "  4) Init DB   — create wordgame + wordgamebff on host Postgres"
   echo "  5) Status    — container status + health summary"
@@ -391,7 +553,8 @@ show_menu() {
   echo " 10) Health    — curl wordgamebff; confirm wordgames NOT on host 8081"
   echo "  0) Exit"
   echo ""
-  echo "  Demo URL when up: http://localhost:${DEMO_HTTP_PORT:-3000}"
+  echo "  Demo URL when up: http://localhost:${DEMO_HTTP_PORT:-3100}"
+  echo "  Redis: reuse localhost:${REDIS_PORT:-6379} if up, else Podman 2-node cluster"
   echo ""
 }
 
