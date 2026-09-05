@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: 'list',
   timeout: 120_000,
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5174',
     trace: 'on-first-retry',
   },
   projects: [

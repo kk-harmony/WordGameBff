@@ -21,8 +21,8 @@ The host origin must be listed in BFF configuration.
 ```json
 "Cors": {
   "AllowedOrigins": [
-    "http://localhost:3000",
-    "http://localhost:5173"
+    "http://localhost:3100",
+    "http://localhost:5174"
   ]
 }
 ```
@@ -33,8 +33,8 @@ The host origin must be listed in BFF configuration.
 # Fly.io [env] in fly.toml (redeploy to apply) — not secrets
 Cors__AllowedOrigins__0=https://wordgameui.netlify.app
 Cors__AllowedOrigins__1=https://nepalishabda.netlify.app
-Cors__AllowedOrigins__2=http://localhost:5173
-Cors__AllowedOrigins__3=http://localhost:3000
+Cors__AllowedOrigins__2=http://localhost:5174
+Cors__AllowedOrigins__3=http://localhost:3100
 ```
 
 Register every host-app origin that embeds the widget (production + local ports you use against the Fly BFF).
@@ -182,11 +182,11 @@ BFF on Fly.io:
 ```bash
 curl https://wordgamebff.fly.dev/health/live    # {"status":"healthy"}
 curl https://wordgamebff.fly.dev/health/ready   # {"status":"healthy"} when Postgres is reachable
-curl http://localhost:8080/health               # legacy liveness alias (local dev)
+curl http://localhost:8180/health               # legacy liveness alias (local dev)
 ```
 
 Local Docker CDN:
 
 ```bash
-curl http://localhost:8082/health   # ok
+curl http://localhost:8083/health   # ok
 ```

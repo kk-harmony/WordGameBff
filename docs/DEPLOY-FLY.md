@@ -30,8 +30,8 @@ Update CORS in [`fly.toml`](../fly.toml):
 ```toml
 Cors__AllowedOrigins__0 = "https://wordgameui.netlify.app"
 Cors__AllowedOrigins__1 = "https://nepalishabda.netlify.app"
-Cors__AllowedOrigins__2 = "http://localhost:5173"
-Cors__AllowedOrigins__3 = "http://localhost:3000"
+Cors__AllowedOrigins__2 = "http://localhost:5174"
+Cors__AllowedOrigins__3 = "http://localhost:3100"
 ```
 
 ## 2. Bootstrap Fly (app + Postgres + Redis + secrets)

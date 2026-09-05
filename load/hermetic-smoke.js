@@ -21,7 +21,7 @@ export const options = {
 };
 
 export function setup() {
-  const baseUrl = (__ENV.BFF_URL || 'http://localhost:8080').replace(/\/$/, '');
+  const baseUrl = (__ENV.BFF_URL || 'http://localhost:8180').replace(/\/$/, '');
   return prepareGame(baseUrl, VUS);
 }
 

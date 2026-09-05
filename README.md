@@ -32,7 +32,7 @@ cp .env.example .env
 # Edit .env with CustomAuth M2M credentials
 
 dotnet run --project src/WordGameBff.Api
-curl http://localhost:8080/health
+curl http://localhost:8180/health
 ```
 
 Development uses low PoW difficulty (`appsettings.Development.json`) and an in-memory realtime backplane.
@@ -41,7 +41,7 @@ Development uses low PoW difficulty (`appsettings.Development.json`) and an in-m
 
 Use this to exercise the micro frontend on phones and tablets while developing locally.
 
-1. Allow incoming connections on ports **8080** (BFF) and **5173** (playground) in your OS firewall.
+1. Allow incoming connections on ports **8180** (BFF) and **5174** (playground) in your OS firewall.
 2. Find your machine's LAN IP (macOS: `ipconfig getifaddr en0`).
 3. Start the BFF (binds all interfaces in Development):
 
@@ -55,19 +55,19 @@ Use this to exercise the micro frontend on phones and tablets while developing l
    cd frontend && npm run dev
    ```
 
-5. On another device on the same network, open `http://<LAN-IP>:5173`.
+5. On another device on the same network, open `http://<LAN-IP>:5174`.
 
-   The playground resolves `api-base` to `http://<LAN-IP>:8080` automatically when not opened via localhost. Override with `?apiBase=http://<LAN-IP>:8080` if needed.
+   The playground resolves `api-base` to `http://<LAN-IP>:8180` automatically when not opened via localhost. Override with `?apiBase=http://<LAN-IP>:8180` if needed.
 
 6. Verify the BFF from the device network:
 
    ```bash
-   curl http://<LAN-IP>:8080/health
+   curl http://<LAN-IP>:8180/health
    ```
 
 For the Podman demo (`http://<LAN-IP>:3100`), the demo page uses the same dynamic `api-base` resolution.
 
-In Development, the BFF also accepts CORS preflights from `http://` origins on loopback and private LAN IPs (e.g. `http://192.168.x.x:5173`).
+In Development, the BFF also accepts CORS preflights from `http://` origins on loopback and private LAN IPs (e.g. `http://192.168.x.x:5174`).
 
 ### Docker Compose
 
@@ -78,7 +78,7 @@ cp .env.example .env
 # Set CUSTOMAUTH__CLIENTID and CUSTOMAUTH__CLIENTSECRET
 
 docker compose up --build
-curl http://localhost:8080/health   # wordgamebff — OK
+curl http://localhost:8180/health   # wordgamebff — OK
 curl http://localhost:8081          # wordgames — should fail (not exposed)
 ```
 

@@ -3,7 +3,7 @@ import { API_BASE, isFullStackAvailable } from './helpers.js';
 
 test.describe('CORS', () => {
   test('preflight OPTIONS allows Authorization from playground origin', async ({ request }) => {
-    const origin = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173';
+    const origin = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5174';
     const response = await request.fetch(`${API_BASE}/api/me`, {
       method: 'OPTIONS',
       headers: {

@@ -1,6 +1,6 @@
 import type { APIRequestContext } from '@playwright/test';
 
-const API_BASE = process.env.BFF_URL ?? 'http://localhost:8080';
+const API_BASE = process.env.BFF_URL ?? 'http://localhost:8180';
 const REQUIRE_FULL_STACK = process.env.REQUIRE_FULL_STACK === 'true';
 
 function unavailable(message: string): false {

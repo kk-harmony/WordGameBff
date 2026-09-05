@@ -52,16 +52,13 @@ load_env() {
   fi
 
   POSTGRES_HOST="${POSTGRES_HOST:-host.containers.internal}"
-  POSTGRES_PORT="${POSTGRES_PORT:-5432}"
   POSTGRES_USER="${POSTGRES_USER:-mainuser}"
   POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-${QUARKUS_DATASOURCE_PASSWORD:-}}"
-  WORDGAMEBFF_HTTP_PORT="${WORDGAMEBFF_HTTP_PORT:-8180}"
-  DEMO_HTTP_PORT="${DEMO_HTTP_PORT:-3100}"
   REDIS_HOST="${REDIS_HOST:-host.containers.internal}"
-  REDIS_PORT="${REDIS_PORT:-6379}"
-  REDIS_CLUSTER_PORT_1="${REDIS_CLUSTER_PORT_1:-6479}"
-  REDIS_CLUSTER_PORT_2="${REDIS_CLUSTER_PORT_2:-6480}"
   WORDGAMES_BUILD_CONTEXT="${WORDGAMES_BUILD_CONTEXT:-../../learningProjects/wordgames}"
+
+  # shellcheck source=local-dev-ports.sh
+  source "${SCRIPT_DIR}/local-dev-ports.sh"
 
   if [[ -z "${CUSTOMAUTH__CLIENTID:-}" || -z "${CUSTOMAUTH__CLIENTSECRET:-}" ]]; then
     error "CUSTOMAUTH__CLIENTID and CUSTOMAUTH__CLIENTSECRET must be set in .env"
@@ -94,8 +91,7 @@ load_env() {
   export WORDGAMES_BUILD_CONTEXT="$(cd "${REPO_ROOT}" && cd "${WORDGAMES_BUILD_CONTEXT}" && pwd)"
   export POSTGRES_HOST POSTGRES_PORT POSTGRES_USER POSTGRES_PASSWORD
   export QUARKUS_DATASOURCE_PASSWORD="${POSTGRES_PASSWORD}"
-  export WORDGAMEBFF_HTTP_PORT DEMO_HTTP_PORT
-  export REDIS_HOST REDIS_PORT REDIS_CLUSTER_PORT_1 REDIS_CLUSTER_PORT_2
+  export REDIS_HOST
   export REALTIME__BACKPLANE__CONNECTIONSTRING
 }
 
@@ -194,9 +190,36 @@ host_redis_ready() {
   redis_cli_ping "localhost" "${REDIS_PORT}"
 }
 
+# Resolve podman-compose container name (profiles often break `compose exec`).
+managed_redis_container() {
+  local service="$1"
+  podman ps --filter "name=${service}" --format '{{.Names}}' 2>/dev/null | head -1
+}
+
+managed_redis_exec() {
+  local service="$1"
+  shift
+  local container
+  container="$(managed_redis_container "${service}")"
+  if [[ -z "${container}" ]]; then
+    return 1
+  fi
+  podman exec "${container}" "$@"
+}
+
+managed_redis_host_port() {
+  case "$1" in
+    redis-1) echo "${REDIS_CLUSTER_PORT_1}" ;;
+    redis-2) echo "${REDIS_CLUSTER_PORT_2}" ;;
+    *) return 1 ;;
+  esac
+}
+
 compose_redis_ready() {
   local service="$1"
-  compose exec -T "${service}" redis-cli ping 2>/dev/null | grep -q PONG
+  local port
+  port="$(managed_redis_host_port "${service}")" || return 1
+  redis_cli_ping "localhost" "${port}"
 }
 
 wait_for_compose_redis() {
@@ -214,7 +237,7 @@ wait_for_compose_redis() {
 }
 
 cluster_already_ok() {
-  compose exec -T redis-1 redis-cli CLUSTER INFO 2>/dev/null | grep -q "cluster_state:ok"
+  managed_redis_exec redis-1 redis-cli CLUSTER INFO 2>/dev/null | grep -q "cluster_state:ok"
 }
 
 init_managed_redis_cluster() {
@@ -225,18 +248,18 @@ init_managed_redis_cluster() {
 
   info "Initializing 2-node Redis Cluster (redis-1 + redis-2)..."
   local redis2_ip
-  redis2_ip="$(compose exec -T redis-2 hostname -i 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+  redis2_ip="$(managed_redis_exec redis-2 hostname -i 2>/dev/null | tr -d '\r' | awk '{print $1}')"
   if [[ -z "${redis2_ip}" ]]; then
     error "Could not resolve redis-2 container IP for CLUSTER MEET."
     exit 1
   fi
 
-  compose exec -T redis-1 redis-cli CLUSTER MEET "${redis2_ip}" 6379 >/dev/null
+  managed_redis_exec redis-1 redis-cli CLUSTER MEET "${redis2_ip}" 6379 >/dev/null
   sleep 1
 
   # Split hash slots across the two masters (Redis Cluster create requires 3+ via redis-cli).
-  compose exec -T redis-1 sh -c 'seq 0 8191 | xargs -n 100 redis-cli CLUSTER ADDSLOTS' >/dev/null
-  compose exec -T redis-2 sh -c 'seq 8192 16383 | xargs -n 100 redis-cli CLUSTER ADDSLOTS' >/dev/null
+  managed_redis_exec redis-1 sh -c 'seq 0 8191 | xargs -n 100 redis-cli CLUSTER ADDSLOTS' >/dev/null
+  managed_redis_exec redis-2 sh -c 'seq 8192 16383 | xargs -n 100 redis-cli CLUSTER ADDSLOTS' >/dev/null
 
   local timeout=30
   local elapsed=0
@@ -250,7 +273,8 @@ init_managed_redis_cluster() {
   done
 
   error "Managed Redis cluster did not reach cluster_state:ok within ${timeout}s."
-  compose logs redis-1 redis-2 || true
+  managed_redis_exec redis-1 redis-cli CLUSTER INFO || true
+  managed_redis_exec redis-2 redis-cli CLUSTER INFO || true
   exit 1
 }
 
@@ -263,7 +287,7 @@ start_managed_redis_cluster() {
 
   if ! wait_for_compose_redis redis-1 || ! wait_for_compose_redis redis-2; then
     error "Managed Redis nodes did not become healthy."
-    compose logs redis-1 redis-2 || true
+    podman ps -a --filter name=redis --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
     exit 1
   fi
 
@@ -287,7 +311,7 @@ ensure_redis() {
   fi
 
   # Prefer an already-running managed cluster from a previous up.
-  if compose_redis_ready redis-1 2>/dev/null && compose_redis_ready redis-2 2>/dev/null; then
+  if compose_redis_ready redis-1 && compose_redis_ready redis-2; then
     init_managed_redis_cluster
     REALTIME__BACKPLANE__CONNECTIONSTRING="cluster://redis-1:6379,redis-2:6379"
     export REALTIME__BACKPLANE__CONNECTIONSTRING
@@ -303,7 +327,7 @@ ensure_redis() {
 redis_status_line() {
   if host_redis_ready; then
     info "Redis: existing host instance (localhost:${REDIS_PORT})"
-  elif [[ -f "${REDIS_MANAGED_FLAG}" ]] || compose_redis_ready redis-1 2>/dev/null; then
+  elif [[ -f "${REDIS_MANAGED_FLAG}" ]] || compose_redis_ready redis-1; then
     if cluster_already_ok 2>/dev/null; then
       info "Redis: managed 2-node cluster (redis-1/redis-2, host :${REDIS_CLUSTER_PORT_1}/:${REDIS_CLUSTER_PORT_2})"
     else
@@ -554,6 +578,7 @@ show_menu() {
   echo "  0) Exit"
   echo ""
   echo "  Demo URL when up: http://localhost:${DEMO_HTTP_PORT:-3100}"
+  echo "  BFF URL when up:  http://localhost:${WORDGAMEBFF_HTTP_PORT:-8180}/health"
   echo "  Redis: reuse localhost:${REDIS_PORT:-6379} if up, else Podman 2-node cluster"
   echo ""
 }
