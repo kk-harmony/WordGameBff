@@ -5,15 +5,18 @@ const suppliedTokens = (__ENV.SESSION_TOKENS || '')
   .split(',')
   .map((token) => token.trim())
   .filter(Boolean);
-const VUS = suppliedTokens.length || Number.parseInt(__ENV.VUS || '8', 10);
+// Default 15 ≈ full shared-NAT table; minting uses prod PoW (16 bits) + auth-ip 120/min.
+const VUS = suppliedTokens.length || Number.parseInt(__ENV.VUS || '15', 10);
 
 export const options = {
+  // Sequential challenge+verify for 15 players at 16 bits can exceed the 60s default.
+  setupTimeout: '180s',
   scenarios: {
     concurrent_game_clients: {
       executor: 'per-vu-iterations',
       vus: VUS,
       iterations: 1,
-      maxDuration: '45s',
+      maxDuration: '60s',
     },
   },
   thresholds: {

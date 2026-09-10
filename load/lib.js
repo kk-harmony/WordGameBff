@@ -30,6 +30,7 @@ function leadingZeroBits(hexDigest) {
 }
 
 function solvePow(prefix, difficulty) {
+  // 10M attempts covers prod 16-bit PoW (~65k expected) with wide unlucky headroom.
   for (let nonce = 0; nonce < 10_000_000; nonce += 1) {
     const candidate = String(nonce);
     const digest = crypto.sha256(`${prefix}${candidate}`, 'hex');

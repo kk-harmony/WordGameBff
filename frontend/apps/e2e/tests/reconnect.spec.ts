@@ -1,40 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { isFullStackAvailable } from './helpers.js';
-
-async function waitForHome(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(
-    () =>
-      document.querySelector('word-game-widget')?.shadowRoot?.querySelector('[data-action="start-game"]') != null,
-    { timeout: 120_000 },
-  );
-}
-
-async function createGameAsAdmin(page: import('@playwright/test').Page): Promise<number> {
-  await waitForHome(page);
-  await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
-  await page.waitForFunction(
-    () => {
-      const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent && /^\d+$/.test(value.textContent.trim());
-    },
-    { timeout: 120_000 },
-  );
-  const gameIdText = await page.locator('word-game-widget').locator('.wg-game-id-value').textContent();
-  expect(gameIdText).toBeTruthy();
-  return Number.parseInt(gameIdText!.trim(), 10);
-}
-
-async function waitForWaitingRoom(page: import('@playwright/test').Page, gameId: number): Promise<void> {
-  await page.waitForFunction(
-    (id) => {
-      const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent?.trim() === String(id);
-    },
-    gameId,
-    { timeout: 120_000 },
-  );
-}
+import {
+  createGameAsAdmin,
+  isFullStackAvailable,
+  joinGameViaTile,
+  waitForHome,
+  waitForWaitingRoom,
+} from './helpers.js';
 
 test.describe('reconnect', () => {
   test('resumes waiting room after page reload', async ({ page, request }) => {
@@ -63,11 +34,7 @@ test.describe('reconnect', () => {
     const gameId = await createGameAsAdmin(adminPage);
 
     for (const joinPage of [player2Page, player3Page]) {
-      await waitForHome(joinPage);
-      await joinPage.locator('word-game-widget').locator('[data-action="show-join"]').click();
-      await joinPage.locator('word-game-widget').locator('#wg-join-id').fill(String(gameId));
-      await joinPage.locator('word-game-widget').locator('[data-action="join-submit"]').click();
-      await waitForWaitingRoom(joinPage, gameId);
+      await joinGameViaTile(joinPage, gameId);
     }
 
     await adminPage.waitForFunction(
@@ -136,7 +103,8 @@ test.describe('reconnect', () => {
       const response = await route.fetch();
       const game = (await response.json()) as Record<string, unknown>;
       await route.fulfill({
-        response,
+        status: response.status(),
+        headers: response.headers(),
         json: { ...game, status: 'FINISHED', outcome: 'IMPOSTOR_IDENTIFIED' },
       });
     });

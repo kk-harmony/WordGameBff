@@ -37,7 +37,6 @@ import {
 import { canKickMember, isMemberOffline, KICK_MIN_MEMBERS } from './kick.js';
 import { resolveMemberRowActions } from './memberRowActions.js';
 import { clearActiveGame, readActiveGame, writeActiveGame } from './activeGame.js';
-import { canLeaveWaitingRoom } from './waitingRoomActions.js';
 
 export interface WordGameAppOptions {
   apiBase: string;
@@ -54,7 +53,7 @@ export interface WordGameAppOptions {
 }
 
 type Screen = 'home' | 'waiting' | 'authenticating' | 'game' | 'error';
-type HomeView = 'tiles' | 'join';
+type HomeView = 'player' | 'admin';
 type AuthPurpose = 'start' | 'join';
 
 const MIN_PLAYERS_TO_START = 3;
@@ -97,7 +96,7 @@ export class WordGameApp {
   private wordPairFetchAttempted = false;
   private userId: string | null = null;
   private screen: Screen = 'home';
-  private homeView: HomeView = 'tiles';
+  private homeView: HomeView = 'player';
   private authPurpose: AuthPurpose | null = null;
   private loading = false;
   private error: { message: string; retryable: boolean } | null = null;
@@ -153,6 +152,8 @@ export class WordGameApp {
       return;
     }
 
+    // Start PoW while the player is still on home so Start/Join feel snappy.
+    this.auth.prefetchAuthentication();
     await this.tryResumeActiveGame();
   }
 
@@ -766,20 +767,28 @@ export class WordGameApp {
   }
 
   private async leaveWaitingRoom(): Promise<void> {
-    const left = await this.withLoading(async (api) => {
-      const userId = this.getCurrentUserId();
-      if (this.game?.id && userId) {
-        await api.removeGameMember(this.game.id, userId);
+    const game = this.game;
+    const userId = this.getCurrentUserId();
+    const isAdmin = game ? this.isGameAdmin(game) : false;
+
+    // Upstream forbids admin self-leave; clear sticky resume so they can join another game.
+    if (!isAdmin) {
+      const left = await this.withLoading(async (api) => {
+        if (game?.id && userId) {
+          await api.removeGameMember(game.id, userId);
+        }
+        return true;
+      });
+      if (!left) {
+        return;
       }
-      return true;
-    });
-    if (!left) {
-      return;
     }
+
     clearActiveGame(this.options.apiBase);
     this.clearGameSession();
     this.screen = 'home';
-    this.homeView = 'tiles';
+    this.homeView = 'player';
+    this.render();
   }
 
   private applyGameUpdate(game: Game): void {
@@ -1035,29 +1044,23 @@ export class WordGameApp {
   }
 
   private renderHome(): string {
-    const joinPanel =
-      this.homeView === 'join'
-        ? `
-        <div class="wg-join-panel">
+    const isPlayer = this.homeView === 'player';
+    const panel = isPlayer
+      ? `
+        <div class="wg-join-panel" role="tabpanel" id="wg-home-panel-player" aria-labelledby="wg-home-tab-player">
           <label class="wg-label" for="wg-join-id">${this.strings.gameId}</label>
           <input id="wg-join-id" class="wg-input" type="text" inputmode="numeric" pattern="[0-9]*" value="${this.escapeAttr(this.joinGameIdInput)}" ${this.loading ? 'disabled' : ''} />
           ${this.joinError ? `<div class="wg-error" role="alert">${this.escapeHtml(this.joinError)}</div>` : ''}
+          <p class="wg-muted wg-tab-hint">${this.strings.playerJoinHint}</p>
           <div class="wg-join-actions">
             <button type="button" class="wg-btn wg-btn--icon wg-btn--join" data-action="join-submit" aria-label="${this.escapeAttr(this.strings.joinSubmitAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.joinSubmit}</button>
-            <button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="join-back" aria-label="${this.escapeAttr(this.strings.joinBackAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.joinBack}</button>
           </div>
         </div>
       `
-        : `
-        <div class="wg-tile-grid">
-          <button type="button" class="wg-tile" data-action="start-game" ${this.loading ? 'disabled' : ''}>
-            <span class="wg-tile-title">${this.strings.tileStartTitle}</span>
-            <span class="wg-tile-hint">${this.strings.tileStartHint}</span>
-          </button>
-          <button type="button" class="wg-tile" data-action="show-join" ${this.loading ? 'disabled' : ''}>
-            <span class="wg-tile-title">${this.strings.tileJoinTitle}</span>
-            <span class="wg-tile-hint">${this.strings.tileJoinHint}</span>
-          </button>
+      : `
+        <div class="wg-admin-panel" role="tabpanel" id="wg-home-panel-admin" aria-labelledby="wg-home-tab-admin">
+          <p class="wg-muted wg-tab-hint">${this.strings.adminCreateHint}</p>
+          <button type="button" class="wg-btn wg-btn--start" data-action="start-game" ${this.loading ? 'disabled' : ''} aria-label="${this.escapeAttr(this.strings.createRoomAria)}">${this.strings.createRoom}</button>
         </div>
       `;
 
@@ -1065,8 +1068,12 @@ export class WordGameApp {
       <div class="wg-root">
         <h1 class="wg-title" tabindex="-1">${this.strings.homeTitle}</h1>
         <p class="wg-intro">${this.strings.gameIntro}</p>
-        ${this.renderPlayerNameField(this.homeView === 'tiles')}
-        ${joinPanel}
+        ${this.renderPlayerNameField(true)}
+        <div class="wg-tabs" role="tablist" aria-label="${this.escapeAttr(this.strings.homeTabsAria)}">
+          <button type="button" class="wg-tab${isPlayer ? ' wg-tab--active' : ''}" role="tab" id="wg-home-tab-player" data-action="home-tab-player" aria-selected="${isPlayer ? 'true' : 'false'}" aria-controls="wg-home-panel-player" ${this.loading ? 'disabled' : ''}>${this.strings.tabPlayer}</button>
+          <button type="button" class="wg-tab${!isPlayer ? ' wg-tab--active' : ''}" role="tab" id="wg-home-tab-admin" data-action="home-tab-admin" aria-selected="${!isPlayer ? 'true' : 'false'}" aria-controls="wg-home-panel-admin" ${this.loading ? 'disabled' : ''}>${this.strings.tabAdmin}</button>
+        </div>
+        ${panel}
         ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
         <div class="wg-live" data-live aria-live="polite">${this.strings.homeTitle}</div>
       </div>
@@ -1113,7 +1120,7 @@ export class WordGameApp {
           </div>
         ` : ''}
         ${!isAdmin ? `<p class="wg-muted">${this.strings.waitingForAdmin}</p>` : ''}
-        ${canLeaveWaitingRoom(isAdmin) ? `<button type="button" class="wg-btn wg-btn--icon wg-btn-secondary" data-action="leave-waiting" aria-label="${this.escapeAttr(this.strings.leaveGameAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.leaveGame}</button>` : ''}
+        <button type="button" class="wg-btn wg-btn--icon wg-btn-secondary" data-action="leave-waiting" aria-label="${this.escapeAttr(this.strings.leaveGameAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.leaveGame}</button>
         ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
         <div class="wg-live" data-live aria-live="polite">${this.strings.waitingRoom}</div>
       </div>
@@ -1237,7 +1244,7 @@ export class WordGameApp {
       clearActiveGame(this.options.apiBase);
       this.clearGameSession();
       this.screen = 'home';
-      this.homeView = 'tiles';
+      this.homeView = 'player';
       this.render();
     });
 
@@ -1269,16 +1276,15 @@ export class WordGameApp {
       this.cancelPendingVote();
     });
 
-    this.container.querySelector('[data-action="show-join"]')?.addEventListener('click', () => {
-      this.homeView = 'join';
+    this.container.querySelector('[data-action="home-tab-player"]')?.addEventListener('click', () => {
+      this.homeView = 'player';
       this.joinError = null;
       this.render();
     });
 
-    this.container.querySelector('[data-action="join-back"]')?.addEventListener('click', () => {
-      this.homeView = 'tiles';
+    this.container.querySelector('[data-action="home-tab-admin"]')?.addEventListener('click', () => {
+      this.homeView = 'admin';
       this.joinError = null;
-      this.joinGameIdInput = '';
       this.render();
     });
 

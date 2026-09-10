@@ -23,15 +23,16 @@ describe('Nepali locale strings', () => {
 
   it('uses खेल and प्रशासक instead of English game/admin', () => {
     expect(ne.gameId).toBe('खेल ID');
-    expect(ne.tileStartHint).toContain('खेल ID');
+    expect(ne.adminCreateHint).toContain('खेल ID');
     expect(ne.shareGameId).toContain('खेल ID');
     expect(ne.copyGameIdAria).toContain('खेल ID');
     expect(ne.invalidGameId).toContain('खेल ID');
     expect(ne.admin).toBe('प्रशासक');
+    expect(ne.tabAdmin).toBe('प्रशासक');
     expect(ne.adminWaitingRoom).toContain('प्रशासक');
     expect(ne.adminHint).toContain('प्रशासक');
     expect(ne.waitingForAdmin).toContain('प्रशासक');
-    expect(ne.tileStartHint).not.toMatch(/\bgame\b/i);
+    expect(ne.adminCreateHint).not.toMatch(/\bgame\b/i);
     expect(ne.shareGameId).not.toMatch(/\bgame\b/i);
     expect(ne.adminHint).not.toMatch(/\badmin\b/i);
     expect(ne.waitingForAdmin).not.toMatch(/\badmin\b/i);

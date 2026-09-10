@@ -140,8 +140,9 @@ Before go-live:
 
 ## Load smoke
 
-The scheduled `Load Smoke` workflow runs ten concurrent clients against the
-hermetic stack. Run the same bounded check locally with:
+The scheduled `Load Smoke` workflow runs fifteen concurrent clients against the
+hermetic stack (aligned with a ~15-player shared-NAT table). Run the same
+bounded check locally with:
 
 ```bash
 ./scripts/run-load-hermetic.sh
@@ -149,13 +150,13 @@ hermetic stack. Run the same bounded check locally with:
 
 For a manual Fly check, create a waiting game and use a small VU count. Each VU
 mints a PoW session and joins the game during setup; keep VUs under half the
-production auth IP limit (60/min → ~25 VUs max, default 8 is comfortable):
+production auth IP limit (120/min → ~30 VUs max, default 15 matches a full table):
 
 ```bash
 k6 run \
   -e BFF_URL=https://wordgamebff.fly.dev \
   -e GAME_ID=<waiting-game-id> \
-  -e VUS=8 \
+  -e VUS=15 \
   load/fly-manual.js
 ```
 

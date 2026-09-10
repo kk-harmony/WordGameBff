@@ -64,7 +64,7 @@ services:
       CustomAuth__Audience: ${CUSTOMAUTH__AUDIENCE:-wordgame}
       Session__SigningKey: ${SESSION__SIGNINGKEY:-local-docker-compose-bff-signing-key-32chars!}
       Session__ExpiryMinutes: ${SESSION__EXPIRYMINUTES:-60}
-      Pow__DifficultyBits: ${POW__DIFFICULTYBITS:-20}
+      Pow__DifficultyBits: ${POW__DIFFICULTYBITS:-16}
       Pow__ChallengeExpirySeconds: ${POW__CHALLENGEEXPIRYSECONDS:-300}
       Cors__AllowedOrigins__0: ${CORS__ALLOWEDORIGINS__0:-http://localhost:3100}
       Cors__AllowedOrigins__1: ${CORS__ALLOWEDORIGINS__1:-http://localhost:5174}

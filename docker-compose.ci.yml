@@ -26,8 +26,9 @@ services:
       CustomAuth__Authority: http://mock-oauth2:8080/default
       CustomAuth__ClientId: wordgamebff-ci
       CustomAuth__ClientSecret: ci-only-client-secret
+      # Fast PoW for E2E/load; production uses 16 bits (~1–3s browser solve).
       Pow__DifficultyBits: '8'
-      # Full E2E mints many PoW sessions from one CI runner IP.
+      # Shared CI runner IP; 120 matches prod (~15-player challenge+verify headroom).
       RateLimiting__AuthIpPermitLimit: '120'
       RateLimiting__ApiIpPermitLimit: '600'
       RateLimiting__ApiSessionPermitLimit: '600'

@@ -27,6 +27,7 @@ export class AuthManager {
   private abortController: AbortController | null = null;
   private reauthTimer: ReturnType<typeof setTimeout> | null = null;
   private worker: Worker | null = null;
+  private authInFlight: Promise<Session> | null = null;
   private disposed = false;
 
   constructor(apiBase: string, callbacks: AuthCallbacks = {}) {
@@ -70,13 +71,16 @@ export class AuthManager {
     }
     const expiresAt = new Date(this.session.expiresAt).getTime();
     const delay = expiresAt - Date.now() - REAUTH_BUFFER_MS;
+    const run = () => {
+      void this.authenticate().catch((err) => {
+        this.callbacks.onError?.(err instanceof Error ? err : new Error(String(err)));
+      });
+    };
     if (delay <= 0) {
-      void this.authenticate();
+      run();
       return;
     }
-    this.reauthTimer = setTimeout(() => {
-      void this.authenticate();
-    }, delay);
+    this.reauthTimer = setTimeout(run, delay);
   }
 
   private setSession(session: Session): void {
@@ -140,27 +144,31 @@ export class AuthManager {
     if (this.disposed) {
       throw new Error('AuthManager disposed');
     }
+    if (this.authInFlight) {
+      return this.authInFlight;
+    }
 
+    this.authInFlight = this.runAuthenticate().finally(() => {
+      this.authInFlight = null;
+    });
+    return this.authInFlight;
+  }
+
+  private async runAuthenticate(): Promise<Session> {
     this.abortController?.abort();
     this.abortController = new AbortController();
     this.api = this.createApiClient();
 
-    try {
-      const challenge = await this.api.getChallenge();
-      const nonce = await this.solvePow(challenge.prefix, challenge.difficulty);
-      const resumeUserId = readIdentity(this.apiBase)?.userId;
-      const session = await this.api.verifyChallenge(
-        challenge.challengeId,
-        nonce,
-        resumeUserId,
-      );
-      this.setSession(session);
-      return session;
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      this.callbacks.onError?.(error);
-      throw error;
-    }
+    const challenge = await this.api.getChallenge();
+    const nonce = await this.solvePow(challenge.prefix, challenge.difficulty);
+    const resumeUserId = readIdentity(this.apiBase)?.userId;
+    const session = await this.api.verifyChallenge(
+      challenge.challengeId,
+      nonce,
+      resumeUserId,
+    );
+    this.setSession(session);
+    return session;
   }
 
   async ensureAuthenticated(): Promise<Session> {
@@ -169,6 +177,16 @@ export class AuthManager {
       return this.session;
     }
     return this.authenticate();
+  }
+
+  /** Warm a session in the background (home screen) so Start/Join skip cold PoW. */
+  prefetchAuthentication(): void {
+    if (this.disposed) {
+      return;
+    }
+    void this.ensureAuthenticated().catch(() => {
+      // Errors surface again when the user starts/joins.
+    });
   }
 
   async handleUnauthorized(): Promise<Session> {

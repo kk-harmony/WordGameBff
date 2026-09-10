@@ -130,7 +130,7 @@ Non-interactive: `./scripts/run-podman-local.sh up`
 | `CustomAuth:Audience` | Upstream audience (`wordgame`) |
 | `Session:SigningKey` | BFF session JWT HMAC key |
 | `Session:ExpiryMinutes` | Session TTL |
-| `Pow:DifficultyBits` | PoW leading zero bits |
+| `Pow:DifficultyBits` | PoW leading zero bits (production **16** ≈ 1–3s browser solve) |
 | `Pow:ChallengeExpirySeconds` | Challenge TTL |
 | `Cors:AllowedOrigins` | Allowed browser origins |
 | `Realtime:Transport` | `SignalR` (default) |
@@ -247,12 +247,12 @@ Redis pub/sub (`wordgamebff_backplane` channel) fan-out to all WordGameBff insta
 
 | Policy | Scope | Limit |
 |--------|-------|-------|
-| `auth-ip` | `/auth/*` | 60/min per IP |
+| `auth-ip` | `/auth/*` | 120/min per IP |
 | `api-ip` | `/api/*` | 300/min per IP |
 | `api-session` | `/api/*` | 180/min per `sub` |
 | `hub-ip` | `/hubs/*` | 180 connect attempts/min per IP |
 
-Returns `429` with `Retry-After` header. Tuned for shared-NAT party games (~8–12 players); PoW still bounds auth abuse.
+Returns `429` with `Retry-After` header. Tuned for shared-NAT party games (~15 players); PoW still bounds auth abuse.
 
 ## Security
 

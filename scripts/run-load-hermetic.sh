@@ -27,5 +27,5 @@ fi
 
 k6 run \
   -e "BFF_URL=${BFF_URL}" \
-  -e "VUS=${VUS:-10}" \
+  -e "VUS=${VUS:-15}" \
   load/hermetic-smoke.js

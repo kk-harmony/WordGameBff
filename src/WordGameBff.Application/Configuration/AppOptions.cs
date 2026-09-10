@@ -27,7 +27,8 @@ public sealed class SessionOptions
 public sealed class PowOptions
 {
     public const string SectionName = "Pow";
-    public int DifficultyBits { get; set; } = 20;
+    /// <summary>~16 bits ≈ 65k hashes; targets ~1–3s browser solves for ~15-player parties.</summary>
+    public int DifficultyBits { get; set; } = 16;
     public int ChallengeExpirySeconds { get; set; } = 300;
 }
 
@@ -80,10 +81,10 @@ public sealed class RateLimitingOptions
 {
     public const string SectionName = "RateLimiting";
 
-    /// <summary>Shared-NAT party joins (challenge+verify per player); kept below abuse scrapers with PoW.</summary>
-    public int AuthIpPermitLimit { get; set; } = 60;
+    /// <summary>~15 shared-NAT joins (challenge+verify) plus retry headroom; PoW still bounds scrapers.</summary>
+    public int AuthIpPermitLimit { get; set; } = 120;
     public int AuthIpWindowMinutes { get; set; } = 1;
-    /// <summary>Shared-IP tables: polls + mutations for ~8–12 concurrent players.</summary>
+    /// <summary>Shared-IP tables: polls + mutations for ~15 concurrent players.</summary>
     public int ApiIpPermitLimit { get; set; } = 300;
     public int ApiIpWindowMinutes { get; set; } = 1;
     /// <summary>Per authenticated session (<c>sub</c>); requires auth before the rate limiter.</summary>

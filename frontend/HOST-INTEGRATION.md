@@ -170,7 +170,7 @@ The widget uses Shadow DOM with inline styles. Allow `'unsafe-inline'` for style
 | CORS error on `/auth/challenge` | Host origin not registered | Add origin to `Cors:AllowedOrigins` |
 | WebSocket fails silently | Corporate proxy / missing `wss://` in CSP | Allow `wss://bff.example.com` in `connect-src` |
 | `429 Too Many Requests` | Rate limit exceeded | Widget shows retry guidance; wait for `Retry-After` |
-| Widget stuck on Authenticating | PoW difficulty too high / BFF down | Check BFF health; dev uses low difficulty |
+| Widget stuck on Authenticating | PoW still solving / BFF down | Prod PoW is 16 bits (~1–3s); wait or check BFF health; dev uses 4 bits |
 | `api-base must use HTTPS` | Non-local HTTP in production | Use `https://` BFF URL |
 
 ## 8. Health checks

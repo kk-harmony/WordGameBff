@@ -1,44 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { isFullStackAvailable } from './helpers.js';
-
-async function waitForHome(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(
-    () =>
-      document.querySelector('word-game-widget')?.shadowRoot?.querySelector('[data-action="start-game"]') != null,
-    { timeout: 120_000 },
-  );
-}
-
-async function createGameAsAdmin(page: import('@playwright/test').Page): Promise<number> {
-  await waitForHome(page);
-  await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
-  await page.waitForFunction(
-    () => {
-      const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent && /^\d+$/.test(value.textContent.trim());
-    },
-    { timeout: 120_000 },
-  );
-  const gameIdText = await page.locator('word-game-widget').locator('.wg-game-id-value').textContent();
-  expect(gameIdText).toBeTruthy();
-  return Number.parseInt(gameIdText!.trim(), 10);
-}
-
-async function joinGameViaTile(page: import('@playwright/test').Page, gameId: number): Promise<void> {
-  await waitForHome(page);
-  await page.locator('word-game-widget').locator('[data-action="show-join"]').click();
-  await page.locator('word-game-widget').locator('#wg-join-id').fill(String(gameId));
-  await page.locator('word-game-widget').locator('[data-action="join-submit"]').click();
-  await page.waitForFunction(
-    (id) => {
-      const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent?.trim() === String(id);
-    },
-    gameId,
-    { timeout: 120_000 },
-  );
-}
+import {
+  createGameAsAdmin,
+  isFullStackAvailable,
+  joinGameViaTile,
+  waitForHome,
+} from './helpers.js';
 
 test.describe('game flow', () => {
   test('three players join waiting room and admin can start', async ({ browser, request }) => {
@@ -82,5 +48,45 @@ test.describe('game flow', () => {
     await adminContext.close();
     await player2Context.close();
     await player3Context.close();
+  });
+
+  test('admin can abandon accidental create and join another game', async ({ browser, request }) => {
+    test.skip(!(await isFullStackAvailable(request)), 'Requires docker-compose stack with wordgames');
+
+    const accidentalContext = await browser.newContext();
+    const hostContext = await browser.newContext();
+    const accidentalPage = await accidentalContext.newPage();
+    const hostPage = await hostContext.newPage();
+
+    // Accidental Start traps the player as admin of an empty waiting room.
+    await createGameAsAdmin(accidentalPage);
+    await expect(
+      accidentalPage.locator('word-game-widget').locator('[data-action="leave-waiting"]'),
+    ).toBeVisible({ timeout: 30_000 });
+
+    await accidentalPage.locator('word-game-widget').locator('[data-action="leave-waiting"]').click();
+    await accidentalPage.waitForFunction(
+      () =>
+        document.querySelector('word-game-widget')?.shadowRoot?.querySelector('[data-action="home-tab-player"]') != null
+        && document.querySelector('word-game-widget')?.shadowRoot?.querySelector('#wg-join-id') != null,
+      { timeout: 30_000 },
+    );
+
+    // Sticky activeGame must be cleared — reload should stay on home, not resume the abandoned room.
+    await accidentalPage.reload();
+    await waitForHome(accidentalPage);
+
+    const gameId = await createGameAsAdmin(hostPage);
+    await joinGameViaTile(accidentalPage, gameId);
+
+    await expect(accidentalPage.locator('word-game-widget').locator('.wg-game-id-value')).toHaveText(String(gameId), {
+      timeout: 30_000,
+    });
+    await expect(
+      accidentalPage.locator('word-game-widget').locator('[data-action="leave-waiting"]'),
+    ).toBeVisible();
+
+    await accidentalContext.close();
+    await hostContext.close();
   });
 });
