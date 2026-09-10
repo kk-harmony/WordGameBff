@@ -161,11 +161,12 @@ public class PowChallengeTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task AuthEndpoints_ExceedRateLimit_Returns429WithRetryAfter()
     {
+        // Development auth-ip default is 60/min; exceed it from a single client IP.
         await using var factory = new WebApplicationFactory<Program>();
         var client = factory.CreateClient();
         HttpResponseMessage? last = null;
 
-        for (var i = 0; i < 35; i++)
+        for (var i = 0; i < 65; i++)
         {
             last = await client.GetAsync("/auth/challenge");
         }

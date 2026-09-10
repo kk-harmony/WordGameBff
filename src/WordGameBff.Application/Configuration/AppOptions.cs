@@ -80,12 +80,15 @@ public sealed class RateLimitingOptions
 {
     public const string SectionName = "RateLimiting";
 
-    public int AuthIpPermitLimit { get; set; } = 10;
+    /// <summary>Shared-NAT party joins (challenge+verify per player); kept below abuse scrapers with PoW.</summary>
+    public int AuthIpPermitLimit { get; set; } = 60;
     public int AuthIpWindowMinutes { get; set; } = 1;
-    public int ApiIpPermitLimit { get; set; } = 60;
+    /// <summary>Shared-IP tables: polls + mutations for ~8–12 concurrent players.</summary>
+    public int ApiIpPermitLimit { get; set; } = 300;
     public int ApiIpWindowMinutes { get; set; } = 1;
-    public int ApiSessionPermitLimit { get; set; } = 120;
+    /// <summary>Per authenticated session (<c>sub</c>); requires auth before the rate limiter.</summary>
+    public int ApiSessionPermitLimit { get; set; } = 180;
     public int ApiSessionWindowMinutes { get; set; } = 1;
-    public int HubIpPermitLimit { get; set; } = 120;
+    public int HubIpPermitLimit { get; set; } = 180;
     public int HubIpWindowMinutes { get; set; } = 1;
 }

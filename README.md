@@ -247,12 +247,12 @@ Redis pub/sub (`wordgamebff_backplane` channel) fan-out to all WordGameBff insta
 
 | Policy | Scope | Limit |
 |--------|-------|-------|
-| `auth-ip` | `/auth/*` | 10/min per IP |
-| `api-ip` | `/api/*` | 60/min per IP |
-| `api-session` | `/api/*` | 120/min per `sub` |
-| `hub-ip` | `/hubs/*` | 10 connect attempts/min per IP |
+| `auth-ip` | `/auth/*` | 60/min per IP |
+| `api-ip` | `/api/*` | 300/min per IP |
+| `api-session` | `/api/*` | 180/min per `sub` |
+| `hub-ip` | `/hubs/*` | 180 connect attempts/min per IP |
 
-Returns `429` with `Retry-After` header.
+Returns `429` with `Retry-After` header. Tuned for shared-NAT party games (~8–12 players); PoW still bounds auth abuse.
 
 ## Security
 

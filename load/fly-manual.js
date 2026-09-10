@@ -5,7 +5,7 @@ const suppliedTokens = (__ENV.SESSION_TOKENS || '')
   .split(',')
   .map((token) => token.trim())
   .filter(Boolean);
-const VUS = suppliedTokens.length || Number.parseInt(__ENV.VUS || '3', 10);
+const VUS = suppliedTokens.length || Number.parseInt(__ENV.VUS || '8', 10);
 
 export const options = {
   scenarios: {

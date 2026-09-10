@@ -148,14 +148,14 @@ hermetic stack. Run the same bounded check locally with:
 ```
 
 For a manual Fly check, create a waiting game and use a small VU count. Each VU
-mints a PoW session and joins the game during setup; the default of three stays
-below the production auth rate limit:
+mints a PoW session and joins the game during setup; keep VUs under half the
+production auth IP limit (60/min → ~25 VUs max, default 8 is comfortable):
 
 ```bash
 k6 run \
   -e BFF_URL=https://wordgamebff.fly.dev \
   -e GAME_ID=<waiting-game-id> \
-  -e VUS=3 \
+  -e VUS=8 \
   load/fly-manual.js
 ```
 

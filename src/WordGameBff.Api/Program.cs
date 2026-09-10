@@ -84,9 +84,10 @@ app.UseForwardedHeaders();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseCors();
 app.UseExceptionHandler();
-app.UseRateLimiter();
+// Auth must run before the rate limiter so api-session can partition on JWT sub.
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
