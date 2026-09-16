@@ -40,7 +40,7 @@ test.describe('embed widget', () => {
       await page.waitForFunction(
         () => {
           const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-          return value?.textContent && /^\d+$/.test(value.textContent.trim());
+          return value?.textContent && /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/i.test(value.textContent.trim());
         },
         { timeout: 120_000 },
       );

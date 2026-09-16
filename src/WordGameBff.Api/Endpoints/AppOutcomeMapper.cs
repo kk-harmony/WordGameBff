@@ -27,7 +27,9 @@ internal static class AppOutcomeMapper
                     !string.IsNullOrEmpty(success.ResourceId) &&
                     httpContext is not null)
                 {
-                    httpContext.Response.Headers.Location = $"/api/games/{success.ResourceId}";
+                    httpContext.Response.Headers.Location = success.ResourceId.Contains('/')
+                        ? $"/api/{success.ResourceId}"
+                        : $"/api/games/{success.ResourceId}";
                     return Results.Json(success.Body, RealtimeJson.Options, statusCode: StatusCodes.Status201Created);
                 }
 

@@ -3,7 +3,6 @@ import {
   createGameAsAdmin,
   isFullStackAvailable,
   joinGameViaTile,
-  waitForHome,
   waitForWaitingRoom,
 } from './helpers.js';
 
@@ -76,41 +75,50 @@ test.describe('reconnect', () => {
     await player3Context.close();
   });
 
-  test('returns to home after reload when stored game is finished', async ({ page, request }) => {
+  test('returns to session lobby after reload when stored game is finished', async ({ page, request }) => {
     test.skip(!(await isFullStackAvailable(request)), 'Requires docker-compose stack with wordgames');
 
-    const gameId = await createGameAsAdmin(page);
-    await waitForWaitingRoom(page, gameId);
+    const sessionCode = await createGameAsAdmin(page);
+    await waitForWaitingRoom(page, sessionCode);
 
-    await page.evaluate((id) => {
-      const keys = Object.keys(localStorage).filter((k) => k.startsWith('wordgame:session:'));
-      const sessionKey = keys[0];
-      if (!sessionKey) {
-        return;
-      }
-      const session = JSON.parse(localStorage.getItem(sessionKey) ?? '{}') as { userId?: string };
-      if (!session.userId) {
-        return;
-      }
-      const apiBase = sessionKey.replace('wordgame:session:', '');
-      localStorage.setItem(
-        `wordgame:activeGame:${apiBase}`,
-        JSON.stringify({ gameId: id, userId: session.userId }),
-      );
-    }, gameId);
+    const finishedGameId = 9_001;
+    await page.evaluate(
+      ({ code, gameId }) => {
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith('wordgame:session:'));
+        const sessionKey = keys[0];
+        if (!sessionKey) {
+          return;
+        }
+        const session = JSON.parse(localStorage.getItem(sessionKey) ?? '{}') as { userId?: string };
+        if (!session.userId) {
+          return;
+        }
+        const apiBase = sessionKey.replace('wordgame:session:', '');
+        localStorage.setItem(
+          `wordgame:activeLobby:${apiBase}`,
+          JSON.stringify({ sessionId: code, userId: session.userId, gameId }),
+        );
+      },
+      { code: sessionCode, gameId: finishedGameId },
+    );
 
-    await page.route(`**/api/games/${gameId}`, async (route) => {
-      const response = await route.fetch();
-      const game = (await response.json()) as Record<string, unknown>;
+    await page.route(`**/api/games/${finishedGameId}`, async (route) => {
       await route.fulfill({
-        status: response.status(),
-        headers: response.headers(),
-        json: { ...game, status: 'FINISHED', outcome: 'IMPOSTOR_IDENTIFIED' },
+        status: 200,
+        contentType: 'application/json',
+        json: {
+          id: finishedGameId,
+          name: 'Lobby',
+          adminUserId: 'admin',
+          status: 'FINISHED',
+          outcome: 'IMPOSTOR_IDENTIFIED',
+          members: [],
+        },
       });
     });
 
     await page.reload();
-    await waitForHome(page);
+    await waitForWaitingRoom(page, sessionCode);
   });
 
   test('resyncs game state after hub disconnect', async ({ page, request }) => {

@@ -2,6 +2,7 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
 const API_BASE = process.env.BFF_URL ?? 'http://localhost:8180';
 const REQUIRE_FULL_STACK = process.env.REQUIRE_FULL_STACK === 'true';
+const SESSION_CODE_PATTERN = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/i;
 
 function unavailable(message: string): false {
   if (REQUIRE_FULL_STACK) {
@@ -53,43 +54,47 @@ export async function waitForHome(page: Page): Promise<void> {
   );
 }
 
-export async function createGameAsAdmin(page: Page): Promise<number> {
+export async function createGameAsAdmin(page: Page): Promise<string> {
+  // Creates a multi-game session lobby; the returned value is the public join code.
   await waitForHome(page);
   await page.locator('word-game-widget').locator('[data-action="home-tab-admin"]').click();
   await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
   await page.waitForFunction(
-    () => {
+    (patternSource) => {
       const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent && /^\d+$/.test(value.textContent.trim());
+      const text = value?.textContent?.trim() ?? '';
+      return new RegExp(patternSource, 'i').test(text);
     },
+    SESSION_CODE_PATTERN.source,
     { timeout: 120_000 },
   );
-  const gameIdText = await page.locator('word-game-widget').locator('.wg-game-id-value').textContent();
-  expect(gameIdText).toBeTruthy();
-  return Number.parseInt(gameIdText!.trim(), 10);
+  const sessionCode = (await page.locator('word-game-widget').locator('.wg-game-id-value').textContent())?.trim();
+  expect(sessionCode).toBeTruthy();
+  expect(sessionCode!).toMatch(SESSION_CODE_PATTERN);
+  return sessionCode!.toUpperCase();
 }
 
-export async function joinGameViaTile(page: Page, gameId: number): Promise<void> {
+export async function joinGameViaTile(page: Page, sessionCode: string): Promise<void> {
   await waitForHome(page);
-  await page.locator('word-game-widget').locator('#wg-join-id').fill(String(gameId));
+  await page.locator('word-game-widget').locator('#wg-join-id').fill(sessionCode);
   await page.locator('word-game-widget').locator('[data-action="join-submit"]').click();
   await page.waitForFunction(
-    (id) => {
+    (code) => {
       const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent?.trim() === String(id);
+      return value?.textContent?.trim().toUpperCase() === code.toUpperCase();
     },
-    gameId,
+    sessionCode,
     { timeout: 120_000 },
   );
 }
 
-export async function waitForWaitingRoom(page: Page, gameId: number): Promise<void> {
+export async function waitForWaitingRoom(page: Page, sessionCode: string): Promise<void> {
   await page.waitForFunction(
-    (id) => {
+    (code) => {
       const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent?.trim() === String(id);
+      return value?.textContent?.trim().toUpperCase() === code.toUpperCase();
     },
-    gameId,
+    sessionCode,
     { timeout: 120_000 },
   );
 }

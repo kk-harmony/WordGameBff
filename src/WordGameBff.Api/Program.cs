@@ -118,6 +118,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
 
 app.MapAuthEndpoints();
 app.MapGameEndpoints();
+app.MapSessionEndpoints();
 app.MapSecretWordEndpoints();
 
 app.MapHub<GameHub>(GameHub.Path)

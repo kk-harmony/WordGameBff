@@ -32,4 +32,10 @@ public interface IGameApiClient
     Task<GameApiResponse> CreateSecretWordAsync(string userId, SecretWord request, CancellationToken cancellationToken = default);
     Task<GameApiResponse> GetSecretWordAsync(string userId, long secretWordId, CancellationToken cancellationToken = default);
     Task<Game?> GetGameModelAsync(string userId, long gameId, CancellationToken cancellationToken = default);
+
+    Task<GameApiResponse> CreateSessionAsync(string userId, CreateSessionRequest request, CancellationToken cancellationToken = default);
+    Task<GameApiResponse> GetSessionAsync(string userId, string sessionCode, CancellationToken cancellationToken = default);
+    Task<GameApiResponse> JoinSessionAsync(string userId, string sessionCode, JoinSessionRequest? request = null, CancellationToken cancellationToken = default);
+    Task<GameApiResponse> RemoveSessionMemberAsync(string userId, string sessionCode, string memberUserId, CancellationToken cancellationToken = default);
+    Task<GameApiResponse> StartSessionGameAsync(string userId, string sessionCode, StartGameRequest request, CancellationToken cancellationToken = default);
 }

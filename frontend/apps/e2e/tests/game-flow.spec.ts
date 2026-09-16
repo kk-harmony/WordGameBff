@@ -79,7 +79,7 @@ test.describe('game flow', () => {
     const gameId = await createGameAsAdmin(hostPage);
     await joinGameViaTile(accidentalPage, gameId);
 
-    await expect(accidentalPage.locator('word-game-widget').locator('.wg-game-id-value')).toHaveText(String(gameId), {
+    await expect(accidentalPage.locator('word-game-widget').locator('.wg-game-id-value')).toHaveText(gameId, {
       timeout: 30_000,
     });
     await expect(

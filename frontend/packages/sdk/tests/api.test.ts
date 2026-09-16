@@ -12,6 +12,87 @@ describe('ApiClient', () => {
     vi.useRealTimers();
   });
 
+  it('createSession sends POST with bearer token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 'K7M2Q', name: 'Lobby', adminUserId: 'u1' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new ApiClient('http://localhost:8080', () => 'test-token');
+    const session = await client.createSession({ name: 'Lobby' });
+
+    expect(session.id).toBe('K7M2Q');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/api/sessions',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+        }),
+      }),
+    );
+  });
+
+  it('startSessionGame posts to sessions games path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 42, name: 'G', adminUserId: 'u1', status: 'IN_PROGRESS' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new ApiClient('http://localhost:8080', () => 'token');
+    const game = await client.startSessionGame('K7M2Q', { secretWordId: 3 });
+
+    expect(game.id).toBe(42);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/api/sessions/K7M2Q/games',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('getSession joins and removes session members by code', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'K7M2Q', name: 'Lobby', adminUserId: 'u1' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'K7M2Q', name: 'Lobby', adminUserId: 'u1', members: [] }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 3, authentic: 'a', imposed: 'b' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new ApiClient('http://localhost:8080', () => 'token');
+    await client.getSession('K7M2Q');
+    await client.joinSession('K7M2Q', { displayName: 'Alex' });
+    await client.removeSessionMember('K7M2Q', 'u2');
+    await client.getSessionRandomSecretWord('K7M2Q');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:8080/api/sessions/K7M2Q');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('http://localhost:8080/api/sessions/K7M2Q/members');
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('http://localhost:8080/api/sessions/K7M2Q/members/u2');
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      'http://localhost:8080/api/sessions/K7M2Q/secret-words/random',
+    );
+  });
+
   it('createGame sends POST with bearer token', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: 1, name: 'Test', adminUserId: 'u1' }), {

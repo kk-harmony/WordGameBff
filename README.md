@@ -181,6 +181,12 @@ dotnet test --filter "CustomAuthTokenServiceTests"
 | WordGameBff | Upstream |
 |---------|----------|
 | `GET /api/me` | Returns BFF session `{ userId }` (not proxied) |
+| `POST /api/sessions` | `POST /sessions` (BFF returns **201** + `Location`; `id` is a 5-char join code) |
+| `GET /api/sessions/{code}` | `GET /sessions/{code}` |
+| `POST /api/sessions/{code}/members` | join session between games |
+| `DELETE /api/sessions/{code}/members/{userId}` | leave / kick between games |
+| `POST /api/sessions/{code}/games` | `POST /sessions/{code}/games` (create+start next game) |
+| `GET /api/sessions/{code}/secret-words/random` | `GET /secretwords/random` (session-admin, **between games** only) |
 | `POST /api/games` | `POST /games` (BFF returns **201** + `Location`) |
 | `GET /api/games/{id}` | `GET /games/{id}` |
 | `POST /api/games/{id}/rounds` | `POST /games/{id}/start` (begin play / first round) |
@@ -189,7 +195,6 @@ dotnet test --filter "CustomAuthTokenServiceTests"
 | `POST /api/games/{id}/turns` | `POST /games/{id}/turn/complete` |
 | `GET /api/games/{id}/assigned-word` | `GET /games/{id}/my-word` |
 | `GET /api/games/{id}/word-pair` | Finished games only: authentic + imposed from upstream finished `secretWord` |
-| `POST /api/games/{id}/votes` | `POST /games/{id}/vote` |
 | `POST /api/games/{id}/votes` | `POST /games/{id}/vote` |
 | `GET /api/games/{gameId}/secret-words/random` | `GET /secretwords/random` (game-scoped access) |
 | `GET /api/games/{gameId}/secret-words/{id}` | `GET /secretwords/{id}` (game-scoped access) |

@@ -7,6 +7,8 @@ import {
   type GameChangeAction,
   type GameMember,
   type GameRealtimeMessage,
+  type GameSession,
+  type GameSessionMember,
   type SessionPublic,
 } from '@wordgame/sdk';
 import { formatString, getStrings, type LocaleStrings } from './i18n/index.js';
@@ -36,7 +38,12 @@ import {
 } from './voting.js';
 import { canKickMember, isMemberOffline, KICK_MIN_MEMBERS } from './kick.js';
 import { resolveMemberRowActions } from './memberRowActions.js';
-import { clearActiveGame, readActiveGame, writeActiveGame } from './activeGame.js';
+import {
+  clearActiveLobby,
+  readActiveLobby,
+  writeActiveLobby,
+} from './activeGame.js';
+import { parseSessionJoinCode } from './sessionJoinCode.js';
 
 export interface WordGameAppOptions {
   apiBase: string;
@@ -55,6 +62,12 @@ export interface WordGameAppOptions {
 type Screen = 'home' | 'waiting' | 'authenticating' | 'game' | 'error';
 type HomeView = 'player' | 'admin';
 type AuthPurpose = 'start' | 'join';
+type DisplayMember = {
+  id?: number;
+  userId: string;
+  displayName?: string;
+  role?: string;
+};
 
 const MIN_PLAYERS_TO_START = 3;
 const PLAYER_NAME_STORAGE_KEY = 'wordgame:playerName';
@@ -88,6 +101,7 @@ export class WordGameApp {
   private readonly pollScheduler: GamePollScheduler;
   private auth: AuthManager;
   private realtime: RealtimeClient | null = null;
+  private lobbySession: GameSession | null = null;
   private game: Game | null = null;
   private myWord: string | null = null;
   private myWordType: string | null = null;
@@ -110,6 +124,7 @@ export class WordGameApp {
   private lastGameFingerprint: string | null = null;
   private realtimeConnected = false;
   private readonly gameRefresh = new CoalescingAsyncRunner<GameChangeAction>();
+  private readonly sessionRefresh = new CoalescingAsyncRunner<void>();
   private disposed = false;
 
   constructor(container: HTMLElement, options: WordGameAppOptions) {
@@ -122,7 +137,11 @@ export class WordGameApp {
 
     this.pollScheduler = new GamePollScheduler({
       onTick: () => {
-        void this.refreshGameFromServer();
+        if (this.screen === 'waiting') {
+          void this.refreshSessionFromServer();
+        } else {
+          void this.refreshGameFromServer();
+        }
       },
     });
 
@@ -154,7 +173,7 @@ export class WordGameApp {
 
     // Start PoW while the player is still on home so Start/Join feel snappy.
     this.auth.prefetchAuthentication();
-    await this.tryResumeActiveGame();
+    await this.tryResumeActiveLobby();
   }
 
   unmount(): void {
@@ -186,11 +205,22 @@ export class WordGameApp {
     return (game.members ?? []).some((m) => m.userId === userId && m.role === 'ADMIN');
   }
 
-  private getOrderedMembers(members: GameMember[]): GameMember[] {
+  private isSessionAdmin(session: GameSession): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId) {
+      return false;
+    }
+    if (session.adminUserId === userId) {
+      return true;
+    }
+    return (session.members ?? []).some((m) => m.userId === userId && m.role === 'ADMIN');
+  }
+
+  private getOrderedMembers(members: DisplayMember[]): DisplayMember[] {
     return [...members].sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
   }
 
-  private buildPlayerNumberMap(members: GameMember[]): Map<string, number> {
+  private buildPlayerNumberMap(members: DisplayMember[]): Map<string, number> {
     const map = new Map<string, number>();
     this.getOrderedMembers(members).forEach((member, index) => {
       map.set(member.userId, index + 1);
@@ -198,7 +228,7 @@ export class WordGameApp {
     return map;
   }
 
-  private formatPlayerLabel(userId: string, members: GameMember[]): string {
+  private formatPlayerLabel(userId: string, members: DisplayMember[]): string {
     const member = members.find((m) => m.userId === userId);
     const playerNumber = this.buildPlayerNumberMap(members).get(userId) ?? '?';
     const customName = member?.displayName?.trim();
@@ -238,7 +268,7 @@ export class WordGameApp {
     `;
   }
 
-  private renderMemberLabel(userId: string, members: GameMember[]): string {
+  private renderMemberLabel(userId: string, members: DisplayMember[]): string {
     const label = this.escapeHtml(this.formatPlayerLabel(userId, members));
     if (userId === this.getCurrentUserId()) {
       return `<span class="wg-member-you">${label}</span>`;
@@ -350,6 +380,28 @@ export class WordGameApp {
       <li class="wg-member-row${rowMods ? ` ${rowMods}` : ''}">
         <span class="wg-member-row__label">${label}${badgeHtml}</span>
         ${actions.length > 0 ? `<span class="wg-member-row__actions">${actions.join('')}</span>` : ''}
+      </li>
+    `;
+  }
+
+  private renderLobbyMemberRow(member: GameSessionMember, members: GameSessionMember[], showKick: boolean): string {
+    const label = this.renderMemberLabel(member.userId, members);
+    const playerLabel = this.formatPlayerLabel(member.userId, members);
+    const kickButton = showKick
+      ? `
+          <button
+            type="button"
+            class="wg-btn wg-btn--icon wg-kick-row-btn"
+            data-action="kick-player"
+            data-user-id="${this.escapeAttr(member.userId)}"
+            aria-label="${this.escapeAttr(formatString(this.strings.kickPlayer, { player: playerLabel }))}"
+            ${this.loading ? 'disabled' : ''}
+          >${this.strings.kick}</button>`
+      : '';
+    return `
+      <li class="wg-member-row${showKick ? ' wg-member-row--kickable' : ''}">
+        <span class="wg-member-row__label">${label}</span>
+        ${kickButton ? `<span class="wg-member-row__actions">${kickButton}</span>` : ''}
       </li>
     `;
   }
@@ -488,8 +540,37 @@ export class WordGameApp {
     return (game.members ?? []).some((m) => m.userId === userId);
   }
 
-  private async tryResumeActiveGame(): Promise<void> {
-    const stored = readActiveGame(this.options.apiBase);
+  private isCurrentUserSessionMember(session: GameSession): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId) {
+      return false;
+    }
+    return (session.members ?? []).some((m) => m.userId === userId);
+  }
+
+  private isActiveSessionGameStatus(status?: string | null): boolean {
+    return isPlayingStatus(status ?? undefined) || isVotingStatus(status ?? undefined);
+  }
+
+  private persistActiveLobby(gameId?: number): void {
+    const userId = this.getCurrentUserId();
+    const sessionId = this.lobbySession?.id;
+    if (sessionId == null || !userId) {
+      return;
+    }
+    writeActiveLobby(this.options.apiBase, {
+      sessionId,
+      userId,
+      ...(gameId != null ? { gameId } : {}),
+    });
+  }
+
+  private clearStickyGameId(): void {
+    this.persistActiveLobby();
+  }
+
+  private async tryResumeActiveLobby(): Promise<void> {
+    const stored = readActiveLobby(this.options.apiBase);
     if (!stored) {
       return;
     }
@@ -503,21 +584,43 @@ export class WordGameApp {
     this.syncUserId();
     const userId = this.getCurrentUserId();
     if (!userId || stored.userId !== userId) {
-      clearActiveGame(this.options.apiBase);
+      clearActiveLobby(this.options.apiBase);
       return;
     }
 
     const result = await this.withSilentLoading(async (api) => {
-      const game = sanitizeGame(await api.getGame(stored.gameId));
-      if (!this.isCurrentUserMember(game)) {
+      const session = await api.getSession(stored.sessionId);
+      if (!this.isCurrentUserSessionMember(session)) {
         return null;
       }
-      await this.resumeToGame(game);
-      return game;
+      this.lobbySession = session;
+
+      if (stored.gameId != null) {
+        const game = sanitizeGame(await api.getGame(stored.gameId));
+        if (this.isCurrentUserMember(game) && !isFinishedStatus(game.status)) {
+          await this.resumeToGame(game);
+          return session;
+        }
+        this.clearStickyGameId();
+      }
+
+      if (
+        session.currentGameId != null &&
+        this.isActiveSessionGameStatus(session.currentGameStatus)
+      ) {
+        const game = sanitizeGame(await api.getGame(session.currentGameId));
+        if (this.isCurrentUserMember(game) && !isFinishedStatus(game.status)) {
+          await this.resumeToGame(game);
+          return session;
+        }
+      }
+
+      await this.enterWaitingRoom(session);
+      return session;
     });
 
     if (result === undefined || result === null) {
-      clearActiveGame(this.options.apiBase);
+      clearActiveLobby(this.options.apiBase);
     }
   }
 
@@ -548,13 +651,61 @@ export class WordGameApp {
     });
   }
 
+  private async resumeOrJoinSession(sessionCode: string): Promise<void> {
+    try {
+      await this.auth.ensureAuthenticated();
+    } catch (err) {
+      this.handleError(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    this.syncUserId();
+
+    const resumed = await this.withSilentLoading(async (api) => {
+      const session = await api.getSession(sessionCode);
+      if (!this.isCurrentUserSessionMember(session)) {
+        return false;
+      }
+      if (
+        session.currentGameId != null &&
+        this.isActiveSessionGameStatus(session.currentGameStatus)
+      ) {
+        const game = sanitizeGame(await api.getGame(session.currentGameId));
+        if (this.isCurrentUserMember(game) && !isFinishedStatus(game.status)) {
+          this.lobbySession = session;
+          await this.resumeToGame(game);
+          return true;
+        }
+      }
+      await this.enterWaitingRoom(session);
+      return true;
+    });
+
+    if (resumed) {
+      return;
+    }
+
+    await this.ensureAuthThen('join', async () => {
+      await this.joinExistingSession(sessionCode);
+    });
+  }
+
   private async resumeToGame(game: Game): Promise<void> {
     if (isFinishedStatus(game.status)) {
-      clearActiveGame(this.options.apiBase);
+      this.clearStickyGameId();
+      if (this.lobbySession) {
+        await this.enterWaitingRoom(this.lobbySession);
+      }
       return;
     }
     if (isLobbyStatus(game.status)) {
-      await this.enterWaitingRoom(game);
+      if (this.lobbySession) {
+        await this.enterWaitingRoom(this.lobbySession);
+        return;
+      }
+      // Legacy standalone game-id path: show game waiting UI.
+      this.seedGame(game);
+      await this.connectRealtime();
+      await this.enterActiveGameScreen();
       return;
     }
     this.seedGame(game);
@@ -563,6 +714,22 @@ export class WordGameApp {
   }
 
   private clearGameSession(): void {
+    this.pollScheduler.stop();
+    void this.realtime?.dispose();
+    this.realtime = null;
+    this.realtimeConnected = false;
+    this.lobbySession = null;
+    this.game = null;
+    this.myWord = null;
+    this.myWordType = null;
+    this.revealedAuthenticWord = null;
+    this.revealedImposedWord = null;
+    this.wordPairFetchAttempted = false;
+    this.lastGameFingerprint = null;
+    this.pendingVoteUserId = null;
+  }
+
+  private clearActiveGameFields(): void {
     this.pollScheduler.stop();
     void this.realtime?.dispose();
     this.realtime = null;
@@ -583,8 +750,23 @@ export class WordGameApp {
       api.joinGame(gameId, displayName ? { displayName } : {}),
     );
     if (result) {
+      await this.resumeToGame(sanitizeGame(result));
+    }
+  }
+
+  private async joinExistingSession(sessionCode: string): Promise<void> {
+    const displayName = this.resolveDisplayName();
+    const result = await this.withLoading(async (api) =>
+      api.joinSession(sessionCode, displayName ? { displayName } : {}),
+    );
+    if (result) {
       await this.enterWaitingRoom(result);
     }
+  }
+
+  private seedSession(session: GameSession): void {
+    this.lobbySession = session;
+    this.persistActiveLobby();
   }
 
   private seedGame(game: Game): void {
@@ -592,31 +774,77 @@ export class WordGameApp {
     this.game = sanitized;
     this.lastGameFingerprint = gameStateFingerprint(sanitized);
     this.options.onGameChange?.(this.game);
-    const userId = this.getCurrentUserId();
-    if (sanitized.id != null && userId) {
-      writeActiveGame(this.options.apiBase, { gameId: sanitized.id, userId });
+    if (sanitized.id != null) {
+      this.persistActiveLobby(sanitized.id);
     }
   }
 
-  private async enterWaitingRoom(game: Game): Promise<void> {
-    this.seedGame(game);
+  private async enterWaitingRoom(session: GameSession): Promise<void> {
+    this.clearActiveGameFields();
+    this.seedSession(session);
     this.screen = 'waiting';
     this.copiedGameId = false;
-    await this.connectRealtime();
-    this.render();
+    this.syncBackgroundPoll();
+
+    const enteredActive = await this.maybeEnterActiveGameFromSession(session);
+    if (!enteredActive) {
+      this.render();
+    }
+  }
+
+  private async maybeEnterActiveGameFromSession(session: GameSession): Promise<boolean> {
+    const gameId = session.currentGameId;
+    if (gameId == null || !this.isActiveSessionGameStatus(session.currentGameStatus)) {
+      return false;
+    }
+    try {
+      const game = await this.auth.wrapApiCall((api) => api.getGame(gameId));
+      const sanitized = sanitizeGame(game);
+      if (!this.isCurrentUserMember(sanitized) || isFinishedStatus(sanitized.status)) {
+        return false;
+      }
+      this.lobbySession = session;
+      this.seedGame(sanitized);
+      await this.connectRealtime();
+      await this.enterActiveGameScreen();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async enterActiveGameScreen(): Promise<void> {
     this.pollScheduler.stop();
     this.screen = 'game';
     if (isFinishedStatus(this.game?.status)) {
-      clearActiveGame(this.options.apiBase);
+      this.clearStickyGameId();
       await this.fetchWordPair();
     } else {
       await this.fetchMyWord();
       this.syncBackgroundPoll();
     }
     this.render();
+  }
+
+  private async returnToLobby(): Promise<void> {
+    this.clearActiveGameFields();
+    this.clearStickyGameId();
+    const sessionId = this.lobbySession?.id;
+    if (sessionId == null) {
+      clearActiveLobby(this.options.apiBase);
+      this.lobbySession = null;
+      this.screen = 'home';
+      this.homeView = 'player';
+      this.render();
+      return;
+    }
+
+    // Keep waiting screen visible while refreshing the lobby after a finished game.
+    this.screen = 'waiting';
+    await this.withLoading(async (api) => {
+      const session = await api.getSession(sessionId);
+      await this.enterWaitingRoom(session);
+    });
   }
 
   private async fetchMyWord(): Promise<void> {
@@ -717,7 +945,12 @@ export class WordGameApp {
 
   /** REST poll in waiting/game: fast when SignalR is down, slower safety net when connected. */
   private syncBackgroundPoll(): void {
-    if (this.screen !== 'waiting' && (this.screen !== 'game' || !this.shouldPollGameScreen())) {
+    if (this.screen === 'waiting') {
+      // Lobby has no SignalR hub — always poll the session.
+      this.pollScheduler.startForScreen('waiting', false);
+      return;
+    }
+    if (this.screen !== 'game' || !this.shouldPollGameScreen()) {
       this.pollScheduler.stop();
       return;
     }
@@ -735,24 +968,17 @@ export class WordGameApp {
     focusable?.focus();
   }
 
-  private parseGameId(input: string): number | null {
-    const trimmed = input.trim();
-    if (!/^\d+$/.test(trimmed)) {
-      return null;
-    }
-    const id = Number.parseInt(trimmed, 10);
-    if (Number.isNaN(id) || id <= 0) {
-      return null;
-    }
-    return id;
+  /** Public lobby join codes: 5 chars, letters+digits, no ambiguous glyphs (0/O/1/I/L). */
+  private parseSessionCode(input: string): string | null {
+    return parseSessionJoinCode(input);
   }
 
-  private async copyGameId(): Promise<void> {
-    if (!this.game?.id) {
+  private async copySessionId(): Promise<void> {
+    if (!this.lobbySession?.id) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(String(this.game.id));
+      await navigator.clipboard.writeText(this.lobbySession.id);
       this.copiedGameId = true;
       this.render();
       setTimeout(() => {
@@ -767,15 +993,15 @@ export class WordGameApp {
   }
 
   private async leaveWaitingRoom(): Promise<void> {
-    const game = this.game;
+    const session = this.lobbySession;
     const userId = this.getCurrentUserId();
-    const isAdmin = game ? this.isGameAdmin(game) : false;
+    const isAdmin = session ? this.isSessionAdmin(session) : false;
 
-    // Upstream forbids admin self-leave; clear sticky resume so they can join another game.
+    // Upstream forbids admin self-leave; clear sticky resume so they can join another lobby.
     if (!isAdmin) {
       const left = await this.withLoading(async (api) => {
-        if (game?.id && userId) {
-          await api.removeGameMember(game.id, userId);
+        if (session?.id && userId) {
+          await api.removeSessionMember(session.id, userId);
         }
         return true;
       });
@@ -784,7 +1010,7 @@ export class WordGameApp {
       }
     }
 
-    clearActiveGame(this.options.apiBase);
+    clearActiveLobby(this.options.apiBase);
     this.clearGameSession();
     this.screen = 'home';
     this.homeView = 'player';
@@ -809,16 +1035,11 @@ export class WordGameApp {
     this.game = sanitized;
     this.options.onGameChange?.(this.game);
 
-    if (this.screen === 'waiting' && !isLobbyStatus(this.game.status)) {
-      void this.enterActiveGameScreen();
-      return;
-    }
-
     if (this.screen === 'game') {
       if (previousStatus !== this.game.status) {
         if (isFinishedStatus(this.game.status)) {
           this.pollScheduler.stop();
-          clearActiveGame(this.options.apiBase);
+          this.clearStickyGameId();
           void this.fetchWordPair().then(() => {
             if (!this.disposed) {
               this.render();
@@ -850,9 +1071,35 @@ export class WordGameApp {
     this.render();
   }
 
+  private applySessionUpdate(session: GameSession): void {
+    const previousCount = this.lobbySession?.members?.length ?? 0;
+    this.lobbySession = session;
+    this.persistActiveLobby(this.game?.id);
+
+    if (this.screen === 'waiting') {
+      void this.maybeEnterActiveGameFromSession(session).then((entered) => {
+        if (entered || this.disposed) {
+          return;
+        }
+        const newCount = session.members?.length ?? 0;
+        if (newCount !== previousCount) {
+          this.announce(this.strings.waitingRoom);
+        }
+        this.render();
+      });
+      return;
+    }
+
+    this.render();
+  }
+
   /** Single path for loading authoritative game state from the BFF. */
   private refreshGameFromServer(action?: GameChangeAction): Promise<void> {
     return this.gameRefresh.run((queuedAction) => this.fetchAndApplyGame(queuedAction), action);
+  }
+
+  private refreshSessionFromServer(): Promise<void> {
+    return this.sessionRefresh.run(() => this.fetchAndApplySession());
   }
 
   private async fetchAndApplyGame(action?: GameChangeAction): Promise<void> {
@@ -870,6 +1117,19 @@ export class WordGameApp {
         await this.fetchMyWord();
         this.render();
       }
+    } catch {
+      // Background refresh — ignore transient failures.
+    }
+  }
+
+  private async fetchAndApplySession(): Promise<void> {
+    if (this.disposed || !this.lobbySession?.id || this.screen !== 'waiting') {
+      return;
+    }
+
+    try {
+      const session = await this.auth.wrapApiCall((api) => api.getSession(this.lobbySession!.id!));
+      this.applySessionUpdate(session);
     } catch {
       // Background refresh — ignore transient failures.
     }
@@ -949,6 +1209,7 @@ export class WordGameApp {
     memberCount: number;
     canCompleteTurn: boolean;
     waitingOnVotes: boolean;
+    hasLobby: boolean;
   }): string {
     const {
       isLobby,
@@ -958,7 +1219,13 @@ export class WordGameApp {
       memberCount,
       canCompleteTurn,
       waitingOnVotes,
+      hasLobby,
     } = options;
+    const finishedAction = isFinished
+      ? hasLobby
+        ? `<button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="back-to-lobby" aria-label="${this.escapeAttr(this.strings.backToLobbyAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.backToLobby}</button>`
+        : `<button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="go-home" aria-label="${this.escapeAttr(this.strings.joinBackAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.joinBack}</button>`
+      : '';
     const content = [
       isLobby && isAdmin
         ? `<button type="button" class="wg-btn wg-btn--icon wg-btn--start" data-action="start" aria-label="${this.escapeAttr(this.strings.startGameAria)}" ${this.loading || !canStart ? 'disabled' : ''}>${this.strings.startGame}</button>${!canStart ? `<p class="wg-muted">${formatString(this.strings.needMorePlayers, { required: MIN_PLAYERS_TO_START, current: memberCount })}</p>` : ''}`
@@ -968,9 +1235,7 @@ export class WordGameApp {
         ? `<button type="button" class="wg-btn wg-btn--icon" data-action="complete-turn" aria-label="${this.escapeAttr(this.strings.completeTurnAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.completeTurn}</button>`
         : '',
       waitingOnVotes ? `<p class="wg-muted">${this.strings.waitingForVotes}</p>` : '',
-      isFinished
-        ? `<button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="go-home" aria-label="${this.escapeAttr(this.strings.joinBackAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.joinBack}</button>`
-        : '',
+      finishedAction,
     ]
       .filter(Boolean)
       .join('');
@@ -985,7 +1250,7 @@ export class WordGameApp {
 
   private startPollForCurrentScreen(): void {
     if (this.screen === 'waiting' || this.screen === 'game') {
-      this.pollScheduler.startForScreen(this.screen, this.realtimeConnected);
+      this.syncBackgroundPoll();
     }
   }
 
@@ -1080,17 +1345,37 @@ export class WordGameApp {
     `;
   }
 
+  private canKickSessionMember(member: GameSessionMember, session: GameSession): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId || !this.isSessionAdmin(session)) {
+      return false;
+    }
+    if (member.userId === userId || member.userId === session.adminUserId || member.role === 'ADMIN') {
+      return false;
+    }
+    return true;
+  }
+
   private renderWaiting(): string {
-    const game = this.game;
-    if (!game) {
+    const session = this.lobbySession;
+    if (!session) {
       return this.renderHome();
     }
 
-    const members = game.members ?? [];
-    const isAdmin = this.isGameAdmin(game);
-    const isLobby = isLobbyStatus(game.status);
+    const members = session.members ?? [];
+    const isAdmin = this.isSessionAdmin(session);
     const canStart = members.length >= MIN_PLAYERS_TO_START;
-    const startDisabled = this.loading || !canStart;
+    const gamesStarted = session.gamesStartedCount ?? 0;
+    const maxGames = session.maxGames ?? 0;
+    const atGameLimit = maxGames > 0 && gamesStarted >= maxGames;
+    const startDisabled = this.loading || !canStart || atGameLimit;
+    const progressHtml =
+      maxGames > 0
+        ? `<p class="wg-muted">${formatString(this.strings.sessionGamesProgress, {
+            count: gamesStarted,
+            max: maxGames,
+          })}</p>`
+        : '';
 
     return `
       <div class="wg-root${isAdmin ? ' wg-root--admin' : ''}">
@@ -1098,25 +1383,32 @@ export class WordGameApp {
         ${isAdmin ? `<p class="wg-admin-banner">${formatString(this.strings.adminHint, { required: MIN_PLAYERS_TO_START })}</p>` : ''}
         <div class="wg-game-id-card">
           <p class="wg-label">${this.strings.shareGameId}</p>
-          <p class="wg-game-id-value" data-autofocus tabindex="-1">${game.id ?? '—'}</p>
+          <p class="wg-game-id-value" data-autofocus tabindex="-1">${session.id ?? '—'}</p>
           <button type="button" class="wg-btn wg-btn--icon" data-action="copy-game-id" aria-label="${this.escapeAttr(this.strings.copyGameIdAria)}" ${this.loading ? 'disabled' : ''}>
             ${this.copiedGameId ? this.strings.copiedGameId : this.strings.copyGameId}
           </button>
         </div>
+        ${progressHtml}
         <div class="wg-section">
           <p class="wg-label">${this.strings.members} (${members.length}/${MIN_PLAYERS_TO_START})</p>
           <ul class="wg-member-list">
-            ${members.length === 0 ? `<li class="wg-muted">${this.strings.noMembers}</li>` : members.map((m) => `
-              <li>
-                ${this.renderMemberLabel(m.userId, members)}
-              </li>
-            `).join('')}
+            ${members.length === 0
+              ? `<li class="wg-muted">${this.strings.noMembers}</li>`
+              : members
+                  .map((m) =>
+                    this.renderLobbyMemberRow(m, members, this.canKickSessionMember(m, session)),
+                  )
+                  .join('')}
           </ul>
         </div>
-        ${isLobby && isAdmin ? `
+        ${isAdmin ? `
           <div class="wg-start-block">
             <button type="button" class="wg-btn wg-btn--icon wg-btn--start" data-action="start" aria-label="${this.escapeAttr(this.strings.startGameAria)}" ${startDisabled ? 'disabled' : ''}>${this.strings.startGame}</button>
-            ${!canStart ? `<p class="wg-muted">${formatString(this.strings.needMorePlayers, { required: MIN_PLAYERS_TO_START, current: members.length })}</p>` : ''}
+            ${atGameLimit
+              ? `<p class="wg-muted">${formatString(this.strings.sessionGameLimitReached, { max: maxGames })}</p>`
+              : !canStart
+                ? `<p class="wg-muted">${formatString(this.strings.needMorePlayers, { required: MIN_PLAYERS_TO_START, current: members.length })}</p>`
+                : ''}
           </div>
         ` : ''}
         ${!isAdmin ? `<p class="wg-muted">${this.strings.waitingForAdmin}</p>` : ''}
@@ -1174,6 +1466,7 @@ export class WordGameApp {
       memberCount: members.length,
       canCompleteTurn: Boolean(canCompleteTurn),
       waitingOnVotes,
+      hasLobby: this.lobbySession?.id != null,
     });
 
     return `
@@ -1241,11 +1534,15 @@ export class WordGameApp {
 
     this.container.querySelector('[data-action="go-home"]')?.addEventListener('click', () => {
       this.clearError();
-      clearActiveGame(this.options.apiBase);
+      clearActiveLobby(this.options.apiBase);
       this.clearGameSession();
       this.screen = 'home';
       this.homeView = 'player';
       this.render();
+    });
+
+    this.container.querySelector('[data-action="back-to-lobby"]')?.addEventListener('click', () => {
+      void this.returnToLobby();
     });
 
     const joinIdInput = this.container.querySelector<HTMLInputElement>('#wg-join-id');
@@ -1292,7 +1589,7 @@ export class WordGameApp {
       void this.ensureAuthThen('start', async () => {
         const displayName = this.resolveDisplayName();
         const result = await this.withLoading(async (api) =>
-          api.createGame({
+          api.createSession({
             name: this.strings.defaultGameName,
             ...(displayName ? { displayName } : {}),
           }),
@@ -1304,17 +1601,17 @@ export class WordGameApp {
     });
 
     this.container.querySelector('[data-action="join-submit"]')?.addEventListener('click', () => {
-      const gameId = this.parseGameId(this.joinGameIdInput);
-      if (gameId === null) {
+      const sessionCode = this.parseSessionCode(this.joinGameIdInput);
+      if (sessionCode === null) {
         this.joinError = this.strings.invalidGameId;
         this.render();
         return;
       }
-      void this.resumeOrJoinGame(gameId);
+      void this.resumeOrJoinSession(sessionCode);
     });
 
     this.container.querySelector('[data-action="copy-game-id"]')?.addEventListener('click', () => {
-      void this.copyGameId();
+      void this.copySessionId();
     });
 
     this.container.querySelector('[data-action="leave-waiting"]')?.addEventListener('click', () => {
@@ -1323,14 +1620,18 @@ export class WordGameApp {
 
     this.container.querySelector('[data-action="start"]')?.addEventListener('click', () => {
       void this.withLoading(async (api: ApiClient) => {
-        if (!this.game?.id) {
+        if (!this.lobbySession?.id) {
           return;
         }
-        const secretWord = await api.getRandomSecretWord(this.game.id);
-        await api.startGame(this.game.id, {
+        const secretWord = await api.getSessionRandomSecretWord(this.lobbySession.id);
+        const game = await api.startSessionGame(this.lobbySession.id, {
           secretWordId: secretWord.id!,
         });
-        await this.refreshGameFromServer('start');
+        const session = await api.getSession(this.lobbySession.id);
+        this.lobbySession = session;
+        this.seedGame(sanitizeGame(game));
+        await this.connectRealtime();
+        await this.enterActiveGameScreen();
       });
     });
 
@@ -1355,6 +1656,26 @@ export class WordGameApp {
   }
 
   private kickMember(userId: string): void {
+    if (this.screen === 'waiting') {
+      const session = this.lobbySession;
+      if (!session?.id) {
+        return;
+      }
+      const member = (session.members ?? []).find((m) => m.userId === userId);
+      if (!member || !this.canKickSessionMember(member, session)) {
+        return;
+      }
+      void this.withLoading(async (api: ApiClient) => {
+        const updated = await api.removeSessionMember(session.id!, userId);
+        if (updated) {
+          this.applySessionUpdate(updated);
+        } else {
+          await this.refreshSessionFromServer();
+        }
+      });
+      return;
+    }
+
     if (!this.game?.id) {
       return;
     }

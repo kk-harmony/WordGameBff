@@ -1,70 +1,58 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import {
-  clearActiveGame,
-  readActiveGame,
-  writeActiveGame,
+  clearActiveLobby,
+  readActiveLobby,
+  writeActiveLobby,
 } from '../src/activeGame.js';
 
 const API_BASE = 'http://localhost:8080';
 
-describe('activeGame storage', () => {
+describe('activeLobby', () => {
   beforeEach(() => {
-    const localValues = new Map<string, string>();
-    const sessionValues = new Map<string, string>();
+    const values = new Map<string, string>();
     vi.stubGlobal('localStorage', {
-      getItem: (key: string) => localValues.get(key) ?? null,
-      setItem: (key: string, value: string) => localValues.set(key, value),
-      removeItem: (key: string) => localValues.delete(key),
-      clear: () => localValues.clear(),
-      key: (index: number) => Array.from(localValues.keys())[index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+      clear: () => values.clear(),
+      key: (index: number) => Array.from(values.keys())[index] ?? null,
       get length() {
-        return localValues.size;
+        return values.size;
       },
-    } satisfies Storage);
+    });
     vi.stubGlobal('sessionStorage', {
-      getItem: (key: string) => sessionValues.get(key) ?? null,
-      setItem: (key: string, value: string) => sessionValues.set(key, value),
-      removeItem: (key: string) => sessionValues.delete(key),
-      clear: () => sessionValues.clear(),
-      key: (index: number) => Array.from(sessionValues.keys())[index] ?? null,
-      get length() {
-        return sessionValues.size;
-      },
-    } satisfies Storage);
+      getItem: () => null,
+      setItem: () => undefined,
+      removeItem: () => undefined,
+      clear: () => undefined,
+      key: () => null,
+      length: 0,
+    });
   });
 
   afterEach(() => {
-    clearActiveGame(API_BASE);
-    clearActiveGame('http://localhost:8080/');
     vi.unstubAllGlobals();
   });
 
-  it('round-trips read/write/clear via localStorage', () => {
-    writeActiveGame(API_BASE, { gameId: 42, userId: 'user-1' });
-    expect(readActiveGame(API_BASE)).toEqual({ gameId: 42, userId: 'user-1' });
-    expect(localStorage.getItem('wordgame:activeGame:http://localhost:8080')).toContain('42');
+  it('stores and reads session lobby with optional gameId', () => {
+    writeActiveLobby(API_BASE, { sessionId: 'k7m2q', userId: 'u1', gameId: 42 });
+    expect(readActiveLobby(API_BASE)).toEqual({ sessionId: 'K7M2Q', userId: 'u1', gameId: 42 });
 
-    clearActiveGame(API_BASE);
-    expect(readActiveGame(API_BASE)).toBeNull();
+    writeActiveLobby(API_BASE, { sessionId: 'K7M2Q', userId: 'u1' });
+    expect(readActiveLobby(API_BASE)).toEqual({ sessionId: 'K7M2Q', userId: 'u1' });
   });
 
-  it('normalizes apiBase trailing slash', () => {
-    writeActiveGame('http://localhost:8080/', { gameId: 7, userId: 'u1' });
-    expect(readActiveGame(API_BASE)).toEqual({ gameId: 7, userId: 'u1' });
+  it('clears lobby', () => {
+    writeActiveLobby(API_BASE, { sessionId: 'AB2CD', userId: 'u1' });
+    clearActiveLobby(API_BASE);
+    expect(readActiveLobby(API_BASE)).toBeNull();
   });
 
-  it('migrates legacy sessionStorage values', () => {
-    sessionStorage.setItem(
-      'wordgame:activeGame:http://localhost:8080',
-      JSON.stringify({ gameId: 9, userId: 'legacy' }),
+  it('rejects invalid join codes including ambiguous L', () => {
+    localStorage.setItem(
+      `wordgame:activeLobby:${API_BASE}`,
+      JSON.stringify({ sessionId: 'L7M2Q', userId: 'u1' }),
     );
-    expect(readActiveGame(API_BASE)).toEqual({ gameId: 9, userId: 'legacy' });
-    expect(sessionStorage.getItem('wordgame:activeGame:http://localhost:8080')).toBeNull();
-    expect(localStorage.getItem('wordgame:activeGame:http://localhost:8080')).toContain('legacy');
-  });
-
-  it('returns null for invalid stored payload', () => {
-    localStorage.setItem('wordgame:activeGame:http://localhost:8080', '{"gameId":"x"}');
-    expect(readActiveGame(API_BASE)).toBeNull();
+    expect(readActiveLobby(API_BASE)).toBeNull();
   });
 });

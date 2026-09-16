@@ -102,7 +102,8 @@ Optional attributes:
 | Attribute | Description |
 |-----------|-------------|
 | `api-base` | WordGameBff BFF URL (HTTPS required except localhost and private LAN IPs in development) |
-| `game-id` | Auto-join this game on load |
+| `game-id` | Legacy auto-join attribute (prefer sticky session lobby via create/join) |
+| `session-id` | Reserved for future host deep-link into a session lobby |
 | `locale` | Locale code (`en` only in v1) |
 | `theme` | `light` or `dark` |
 | `debug` | Log event types/IDs to console (never tokens) |

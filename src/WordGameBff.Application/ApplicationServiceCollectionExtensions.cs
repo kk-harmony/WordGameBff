@@ -27,6 +27,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<IGameHubJoinService, GameHubJoinService>();
         services.AddScoped<IGameQueryService, GameQueryService>();
         services.AddScoped<IGameCommandService, GameCommandService>();
+        services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<ISecretWordService, SecretWordService>();
         return services;
     }

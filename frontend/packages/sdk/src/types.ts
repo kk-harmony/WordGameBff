@@ -3,7 +3,16 @@ export interface CreateGameRequest {
   displayName?: string;
 }
 
+export interface CreateGameSessionRequest {
+  name: string;
+  displayName?: string;
+}
+
 export interface JoinGameRequest {
+  displayName?: string;
+}
+
+export interface JoinGameSessionRequest {
   displayName?: string;
 }
 
@@ -31,6 +40,13 @@ export interface GameMember {
   connected?: boolean;
 }
 
+export interface GameSessionMember {
+  id?: number;
+  userId: string;
+  displayName?: string;
+  role?: string;
+}
+
 export interface Game {
   id?: number;
   name: string;
@@ -42,6 +58,20 @@ export interface Game {
   currentTurnUserId?: string;
   impostorUserId?: string;
   members?: GameMember[];
+}
+
+/** Multi-game lobby (distinct from auth Session JWT). */
+export interface GameSession {
+  /** Public 5-character join code. */
+  id?: string;
+  name: string;
+  adminUserId: string;
+  status?: string;
+  gamesStartedCount?: number;
+  maxGames?: number;
+  currentGameId?: number | null;
+  currentGameStatus?: string | null;
+  members?: GameSessionMember[];
 }
 
 export interface SecretWord {
