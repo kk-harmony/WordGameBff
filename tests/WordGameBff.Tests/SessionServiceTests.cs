@@ -97,6 +97,22 @@ public class SessionServiceTests
     }
 
     [Fact]
+    public void GameSession_DeserializesMemberScore()
+    {
+        const string json = """
+            {"id":"K7M2Q","name":"Lobby","adminUserId":"admin","status":"OPEN","gamesStartedCount":1,"maxGames":20,
+             "members":[{"userId":"admin","displayName":"Host","role":"ADMIN","score":3},{"userId":"p2","role":"MEMBER","score":2}]}
+            """;
+
+        var session = System.Text.Json.JsonSerializer.Deserialize<GameSession>(json, RealtimeJson.Options);
+        Assert.NotNull(session);
+        Assert.NotNull(session!.Members);
+        Assert.Equal(2, session.Members!.Count);
+        Assert.Equal(3, session.Members[0].Score);
+        Assert.Equal(2, session.Members[1].Score);
+    }
+
+    [Fact]
     public async Task JoinSessionAsync_PassthroughSuccess()
     {
         var api = new Mock<IGameApiClient>();

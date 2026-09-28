@@ -59,10 +59,18 @@ describe('ApiClient', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ id: 'K7M2Q', name: 'Lobby', adminUserId: 'u1' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({
+            id: 'K7M2Q',
+            name: 'Lobby',
+            adminUserId: 'u1',
+            members: [{ userId: 'u1', role: 'ADMIN', score: 5 }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ id: 'K7M2Q', name: 'Lobby', adminUserId: 'u1', members: [] }), {
@@ -80,7 +88,8 @@ describe('ApiClient', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const client = new ApiClient('http://localhost:8080', () => 'token');
-    await client.getSession('K7M2Q');
+    const session = await client.getSession('K7M2Q');
+    expect(session.members?.[0]?.score).toBe(5);
     await client.joinSession('K7M2Q', { displayName: 'Alex' });
     await client.removeSessionMember('K7M2Q', 'u2');
     await client.getSessionRandomSecretWord('K7M2Q');

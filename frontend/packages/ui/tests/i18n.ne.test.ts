@@ -50,5 +50,10 @@ describe('Nepali locale strings', () => {
     expect(ne.sessionGamesProgress).not.toMatch(/\bgame\b/i);
     expect(ne.sessionGameLimitReached).not.toMatch(/\bgame\b/i);
     expect(ne.playerJoinHint).not.toMatch(/\bgame\b/i);
+    expect(ne.scoreboard).toBe('अंक');
+    expect(ne.points).toContain('{score}');
+    expect(ne.points).not.toMatch(/\bpts\b/i);
+    expect(ne.startNextGameAria).toContain('खेल');
+    expect(ne.startNextGameAria).not.toMatch(/\badmin\b/i);
   });
 });

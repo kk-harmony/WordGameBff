@@ -99,4 +99,42 @@ export async function waitForWaitingRoom(page: Page, sessionCode: string): Promi
   );
 }
 
+/** Drive three in-game clients through turns + one vote round until the finished scoreboard appears. */
+export async function playUntilSessionScoreboard(pages: Page[]): Promise<void> {
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    for (const page of pages) {
+      const root = page.locator('word-game-widget');
+      const complete = root.locator('[data-action="complete-turn"]');
+      if (await complete.isVisible().catch(() => false)) {
+        await complete.click();
+        await page.waitForTimeout(400);
+      }
+    }
+
+    for (const page of pages) {
+      const root = page.locator('word-game-widget');
+      const pick = root.locator('[data-action="pick-vote"]').first();
+      if (await pick.isVisible().catch(() => false)) {
+        await pick.click();
+        const confirm = root.locator('[data-action="confirm-vote"]');
+        await expect(confirm).toBeVisible({ timeout: 10_000 });
+        await confirm.click();
+        await page.waitForTimeout(400);
+      }
+    }
+
+    const scoreboardVisible = await pages[0]
+      ?.locator('word-game-widget')
+      .locator('[data-testid="session-scoreboard"]')
+      .isVisible()
+      .catch(() => false);
+    if (scoreboardVisible) {
+      return;
+    }
+    await pages[0]?.waitForTimeout(500);
+  }
+  throw new Error('Timed out waiting for session scoreboard after finish');
+}
+
 export { API_BASE };

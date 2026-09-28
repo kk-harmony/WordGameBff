@@ -45,6 +45,8 @@ export interface GameSessionMember {
   userId: string;
   displayName?: string;
   role?: string;
+  /** Cumulative session points across finished games. */
+  score?: number;
 }
 
 export interface Game {

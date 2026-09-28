@@ -32,6 +32,7 @@ public sealed class SessionMember
     public required string UserId { get; init; }
     public string? DisplayName { get; init; }
     public string? Role { get; init; }
+    public int Score { get; init; }
 }
 
 public sealed class CreateGameRequest

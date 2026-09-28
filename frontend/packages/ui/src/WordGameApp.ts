@@ -139,9 +139,17 @@ export class WordGameApp {
       onTick: () => {
         if (this.screen === 'waiting') {
           void this.refreshSessionFromServer();
-        } else {
-          void this.refreshGameFromServer();
+          return;
         }
+        if (
+          this.screen === 'game' &&
+          isFinishedStatus(this.game?.status) &&
+          this.lobbySession?.id
+        ) {
+          void this.refreshSessionFromServer();
+          return;
+        }
+        void this.refreshGameFromServer();
       },
     });
 
@@ -387,6 +395,8 @@ export class WordGameApp {
   private renderLobbyMemberRow(member: GameSessionMember, members: GameSessionMember[], showKick: boolean): string {
     const label = this.renderMemberLabel(member.userId, members);
     const playerLabel = this.formatPlayerLabel(member.userId, members);
+    const score = member.score ?? 0;
+    const scoreHtml = `<span class="wg-member-score">${formatString(this.strings.points, { score })}</span>`;
     const kickButton = showKick
       ? `
           <button
@@ -400,9 +410,35 @@ export class WordGameApp {
       : '';
     return `
       <li class="wg-member-row${showKick ? ' wg-member-row--kickable' : ''}">
-        <span class="wg-member-row__label">${label}</span>
+        <span class="wg-member-row__label">${label} ${scoreHtml}</span>
         ${kickButton ? `<span class="wg-member-row__actions">${kickButton}</span>` : ''}
       </li>
+    `;
+  }
+
+  private renderSessionScoreboard(session: GameSession | null | undefined): string {
+    const members = session?.members ?? [];
+    if (members.length === 0) {
+      return '';
+    }
+    const ranked = [...members].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    return `
+      <div class="wg-section wg-scoreboard" data-testid="session-scoreboard">
+        <p class="wg-label">${this.strings.scoreboard}</p>
+        <ol class="wg-scoreboard-list">
+          ${ranked
+            .map(
+              (m) => `
+            <li class="wg-scoreboard-row">
+              <span class="wg-scoreboard-row__label">${this.renderMemberLabel(m.userId, ranked)}</span>
+              <span class="wg-scoreboard-row__points">${formatString(this.strings.points, {
+                score: m.score ?? 0,
+              })}</span>
+            </li>`,
+            )
+            .join('')}
+        </ol>
+      </div>
     `;
   }
 
@@ -819,6 +855,10 @@ export class WordGameApp {
     if (isFinishedStatus(this.game?.status)) {
       this.clearStickyGameId();
       await this.fetchWordPair();
+      if (this.lobbySession?.id) {
+        await this.refreshSessionFromServer();
+        this.syncBackgroundPoll();
+      }
     } else {
       await this.fetchMyWord();
       this.syncBackgroundPoll();
@@ -950,6 +990,15 @@ export class WordGameApp {
       this.pollScheduler.startForScreen('waiting', false);
       return;
     }
+    if (
+      this.screen === 'game' &&
+      isFinishedStatus(this.game?.status) &&
+      this.lobbySession?.id
+    ) {
+      // Finished screen watches the session so scores update and next game auto-joins.
+      this.pollScheduler.startForScreen('waiting', false);
+      return;
+    }
     if (this.screen !== 'game' || !this.shouldPollGameScreen()) {
       this.pollScheduler.stop();
       return;
@@ -1038,13 +1087,18 @@ export class WordGameApp {
     if (this.screen === 'game') {
       if (previousStatus !== this.game.status) {
         if (isFinishedStatus(this.game.status)) {
-          this.pollScheduler.stop();
           this.clearStickyGameId();
           void this.fetchWordPair().then(() => {
             if (!this.disposed) {
               this.render();
             }
           });
+          if (this.lobbySession?.id) {
+            void this.refreshSessionFromServer();
+            this.syncBackgroundPoll();
+          } else {
+            this.pollScheduler.stop();
+          }
         } else {
           void this.fetchMyWord();
         }
@@ -1090,6 +1144,16 @@ export class WordGameApp {
       return;
     }
 
+    if (this.screen === 'game' && isFinishedStatus(this.game?.status)) {
+      void this.maybeEnterActiveGameFromSession(session).then((entered) => {
+        if (entered || this.disposed) {
+          return;
+        }
+        this.render();
+      });
+      return;
+    }
+
     this.render();
   }
 
@@ -1123,7 +1187,12 @@ export class WordGameApp {
   }
 
   private async fetchAndApplySession(): Promise<void> {
-    if (this.disposed || !this.lobbySession?.id || this.screen !== 'waiting') {
+    if (this.disposed || !this.lobbySession?.id) {
+      return;
+    }
+    const watchingFinishedLobbyGame =
+      this.screen === 'game' && isFinishedStatus(this.game?.status);
+    if (this.screen !== 'waiting' && !watchingFinishedLobbyGame) {
       return;
     }
 
@@ -1221,6 +1290,32 @@ export class WordGameApp {
       waitingOnVotes,
       hasLobby,
     } = options;
+
+    const session = this.lobbySession;
+    const isSessionAdmin = Boolean(session && this.isSessionAdmin(session));
+    const lobbyCount = session?.members?.length ?? 0;
+    const canStartNext = lobbyCount >= MIN_PLAYERS_TO_START;
+    const gamesStarted = session?.gamesStartedCount ?? 0;
+    const maxGames = session?.maxGames ?? 0;
+    const atGameLimit = maxGames > 0 && gamesStarted >= maxGames;
+    const startNextDisabled = this.loading || !canStartNext || atGameLimit;
+
+    const startNextAction =
+      isFinished && hasLobby && isSessionAdmin
+        ? `<button type="button" class="wg-btn wg-btn--icon wg-btn--start" data-action="start" data-testid="start-next-game" aria-label="${this.escapeAttr(this.strings.startNextGameAria)}" ${startNextDisabled ? 'disabled' : ''}>${this.strings.startNextGame}</button>${
+            atGameLimit
+              ? `<p class="wg-muted">${formatString(this.strings.sessionGameLimitReached, { max: maxGames })}</p>`
+              : !canStartNext
+                ? `<p class="wg-muted">${formatString(this.strings.needMorePlayers, {
+                    required: MIN_PLAYERS_TO_START,
+                    current: lobbyCount,
+                  })}</p>`
+                : ''
+          }`
+        : isFinished && hasLobby && !isSessionAdmin
+          ? `<p class="wg-muted">${this.strings.waitingForAdmin}</p>`
+          : '';
+
     const finishedAction = isFinished
       ? hasLobby
         ? `<button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="back-to-lobby" aria-label="${this.escapeAttr(this.strings.backToLobbyAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.backToLobby}</button>`
@@ -1235,6 +1330,7 @@ export class WordGameApp {
         ? `<button type="button" class="wg-btn wg-btn--icon" data-action="complete-turn" aria-label="${this.escapeAttr(this.strings.completeTurnAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.completeTurn}</button>`
         : '',
       waitingOnVotes ? `<p class="wg-muted">${this.strings.waitingForVotes}</p>` : '',
+      startNextAction,
       finishedAction,
     ]
       .filter(Boolean)
@@ -1243,7 +1339,7 @@ export class WordGameApp {
     if (!content) {
       return '';
     }
-    return content.includes('<button')
+    return content.includes('<button') || content.includes('<p')
       ? `<div class="wg-section">${content}</div>`
       : content;
   }
@@ -1499,6 +1595,7 @@ export class WordGameApp {
             ` : ''}
           </div>
         ` : ''}
+        ${isFinished && this.lobbySession ? this.renderSessionScoreboard(this.lobbySession) : ''}
         <div class="wg-section${canVote ? ' wg-vote-panel' : ''}">
           <p class="wg-label">${this.strings.members}</p>
           ${canVote && (game.voteResetCount ?? 0) > 0 ? `<p class="wg-muted">${this.strings.voteTieHint}</p>` : ''}
