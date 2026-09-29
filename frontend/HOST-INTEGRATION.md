@@ -21,8 +21,8 @@ The host origin must be listed in BFF configuration.
 ```json
 "Cors": {
   "AllowedOrigins": [
-    "http://localhost:3000",
-    "http://localhost:5173"
+    "http://localhost:3100",
+    "http://localhost:5174"
   ]
 }
 ```
@@ -33,8 +33,8 @@ The host origin must be listed in BFF configuration.
 # Fly.io [env] in fly.toml (redeploy to apply) — not secrets
 Cors__AllowedOrigins__0=https://wordgameui.netlify.app
 Cors__AllowedOrigins__1=https://nepalishabda.netlify.app
-Cors__AllowedOrigins__2=http://localhost:5173
-Cors__AllowedOrigins__3=http://localhost:3000
+Cors__AllowedOrigins__2=http://localhost:5174
+Cors__AllowedOrigins__3=http://localhost:3100
 ```
 
 Register every host-app origin that embeds the widget (production + local ports you use against the Fly BFF).
@@ -102,7 +102,8 @@ Optional attributes:
 | Attribute | Description |
 |-----------|-------------|
 | `api-base` | WordGameBff BFF URL (HTTPS required except localhost and private LAN IPs in development) |
-| `game-id` | Auto-join this game on load |
+| `game-id` | Legacy auto-join attribute (prefer sticky session lobby via create/join) |
+| `session-id` | Reserved for future host deep-link into a session lobby |
 | `locale` | Locale code (`en` only in v1) |
 | `theme` | `light` or `dark` |
 | `debug` | Log event types/IDs to console (never tokens) |
@@ -147,7 +148,7 @@ const instance = window.WordGame.mount({
 
 ## 5. SignalR / multi-instance
 
-The embed SDK connects with WebSockets and `skipNegotiation`, so the negotiate sticky-session requirement does not apply. Each WebSocket remains on one BFF instance; game change events fan out through the Postgres NOTIFY/LISTEN backplane. REST can round-robin.
+The embed SDK connects with WebSockets and `skipNegotiation`, so the negotiate sticky-session requirement does not apply. Each WebSocket remains on one BFF instance; game change events fan out through the Redis pub/sub backplane. REST can round-robin.
 
 Hub URL (internal to widget): `{api-base}/hubs/game?gameId={id}&access_token={token}`
 
@@ -170,7 +171,7 @@ The widget uses Shadow DOM with inline styles. Allow `'unsafe-inline'` for style
 | CORS error on `/auth/challenge` | Host origin not registered | Add origin to `Cors:AllowedOrigins` |
 | WebSocket fails silently | Corporate proxy / missing `wss://` in CSP | Allow `wss://bff.example.com` in `connect-src` |
 | `429 Too Many Requests` | Rate limit exceeded | Widget shows retry guidance; wait for `Retry-After` |
-| Widget stuck on Authenticating | PoW difficulty too high / BFF down | Check BFF health; dev uses low difficulty |
+| Widget stuck on Authenticating | PoW still solving / BFF down | Prod PoW is 16 bits (~1–3s); wait or check BFF health; dev uses 4 bits |
 | `api-base must use HTTPS` | Non-local HTTP in production | Use `https://` BFF URL |
 
 ## 8. Health checks
@@ -182,11 +183,11 @@ BFF on Fly.io:
 ```bash
 curl https://wordgamebff.fly.dev/health/live    # {"status":"healthy"}
 curl https://wordgamebff.fly.dev/health/ready   # {"status":"healthy"} when Postgres is reachable
-curl http://localhost:8080/health               # legacy liveness alias (local dev)
+curl http://localhost:8180/health               # legacy liveness alias (local dev)
 ```
 
 Local Docker CDN:
 
 ```bash
-curl http://localhost:8082/health   # ok
+curl http://localhost:8083/health   # ok
 ```

@@ -6,8 +6,11 @@ import {
 import type {
   ApiError,
   CreateGameRequest,
+  CreateGameSessionRequest,
   Game,
+  GameSession,
   JoinGameRequest,
+  JoinGameSessionRequest,
   MyWordResponse,
   PowChallenge,
   SecretWord,
@@ -190,6 +193,47 @@ export class ApiClient {
   }
   async createGame(request: CreateGameRequest): Promise<Game> {
     return this.request<Game>('POST', '/api/games', request);
+  }
+
+  async createSession(request: CreateGameSessionRequest): Promise<GameSession> {
+    return this.request<GameSession>('POST', '/api/sessions', request);
+  }
+
+  async getSession(code: string): Promise<GameSession> {
+    return this.request<GameSession>(
+      'GET',
+      `/api/sessions/${encodeURIComponent(code)}`,
+      undefined,
+      true,
+    );
+  }
+
+  async joinSession(code: string, request?: JoinGameSessionRequest): Promise<GameSession> {
+    return this.request<GameSession>(
+      'POST',
+      `/api/sessions/${encodeURIComponent(code)}/members`,
+      request ?? {},
+    );
+  }
+
+  async removeSessionMember(sessionCode: string, memberUserId: string): Promise<GameSession | void> {
+    return this.request<GameSession | void>(
+      'DELETE',
+      `/api/sessions/${encodeURIComponent(sessionCode)}/members/${encodeURIComponent(memberUserId)}`,
+    );
+  }
+
+  async startSessionGame(code: string, request: StartGameRequest): Promise<Game> {
+    return this.request<Game>('POST', `/api/sessions/${encodeURIComponent(code)}/games`, request);
+  }
+
+  async getSessionRandomSecretWord(sessionCode: string): Promise<SecretWord> {
+    return this.request<SecretWord>(
+      'GET',
+      `/api/sessions/${encodeURIComponent(sessionCode)}/secret-words/random`,
+      undefined,
+      true,
+    );
   }
 
   async getGame(id: number): Promise<Game> {

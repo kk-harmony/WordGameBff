@@ -122,9 +122,9 @@ public sealed class RealtimeOptionsValidator : IValidateOptions<RealtimeOptions>
             return ValidateOptionsResult.Success;
         }
 
-        if (!string.Equals(options.BackplaneType, "PostgreSQL", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(options.BackplaneType, "Redis", StringComparison.OrdinalIgnoreCase))
         {
-            return ValidateOptionsResult.Fail("Realtime:BackplaneType must be PostgreSQL in production.");
+            return ValidateOptionsResult.Fail("Realtime:BackplaneType must be Redis in production.");
         }
 
         if (string.IsNullOrWhiteSpace(options.Backplane.ConnectionString))
@@ -139,12 +139,10 @@ public sealed class RealtimeOptionsValidator : IValidateOptions<RealtimeOptions>
 public sealed class StoreOptionsValidator : IValidateOptions<StoreOptions>
 {
     private readonly IHostEnvironment _environment;
-    private readonly IConfiguration _configuration;
 
-    public StoreOptionsValidator(IHostEnvironment environment, IConfiguration configuration)
+    public StoreOptionsValidator(IHostEnvironment environment)
     {
         _environment = environment;
-        _configuration = configuration;
     }
 
     public ValidateOptionsResult Validate(string? name, StoreOptions options)
@@ -159,14 +157,9 @@ public sealed class StoreOptionsValidator : IValidateOptions<StoreOptions>
             return ValidateOptionsResult.Fail("Stores:Type must be PostgreSQL in production.");
         }
 
-        var connectionString = string.IsNullOrWhiteSpace(options.ConnectionString)
-            ? _configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>()?.Backplane.ConnectionString
-            : options.ConnectionString;
-
-        if (string.IsNullOrWhiteSpace(connectionString))
+        if (string.IsNullOrWhiteSpace(options.ConnectionString))
         {
-            return ValidateOptionsResult.Fail(
-                "Stores:ConnectionString or Realtime:Backplane:ConnectionString is required when Stores:Type is PostgreSQL.");
+            return ValidateOptionsResult.Fail("Stores:ConnectionString is required when Stores:Type is PostgreSQL.");
         }
 
         return ValidateOptionsResult.Success;

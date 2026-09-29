@@ -10,14 +10,14 @@ export default defineConfig(({ mode }) => {
     plugins: [serveEmbedDist()],
     server: {
       host: true,
-      port: 5173,
+      port: 5174,
       strictPort: true,
       fs: {
         allow: [resolve(__dirname, '../..')],
       },
     },
     define: {
-      __API_BASE__: JSON.stringify(env.VITE_API_BASE ?? 'http://localhost:8080'),
+      __API_BASE__: JSON.stringify(env.VITE_API_BASE ?? 'http://localhost:8180'),
       __EMBED_CDN__: JSON.stringify(env.VITE_EMBED_CDN ?? ''),
       __EMBED_VERSION__: JSON.stringify('1.0.0'),
     },

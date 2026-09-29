@@ -14,6 +14,19 @@ public static class SecretWordEndpoints
             .RequireRateLimiting(RateLimitingExtensions.ApiIpPolicy)
             .RequireRateLimiting(RateLimitingExtensions.ApiSessionPolicy);
 
+        group.MapGet("/sessions/{code}/secret-words/random", async (
+            HttpContext httpContext,
+            string code,
+            ISecretWordService secretWords,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await secretWords.GetRandomForSessionAsync(
+                httpContext.User.GetUserId()!,
+                code,
+                cancellationToken);
+            return AppOutcomeMapper.ToHttpResult(result);
+        });
+
         group.MapGet("/games/{gameId:long}/secret-words/random", async (
             HttpContext httpContext,
             long gameId,

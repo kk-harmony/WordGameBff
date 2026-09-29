@@ -39,8 +39,8 @@ jobs:
       - name: Run bounded load smoke
         run: ./scripts/run-load-hermetic.sh
         env:
-          BFF_URL: http://localhost:8080
-          VUS: '10'
+          BFF_URL: http://localhost:8180
+          VUS: '15'
 
       - name: Show stack diagnostics
         if: failure()

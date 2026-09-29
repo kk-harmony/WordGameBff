@@ -11,7 +11,7 @@ Browser  →  WordGameBff (PoW + session JWT + SignalR)
                  ↓
             PostgreSQL (wordgame DB)
 
-WordGameBff instances share realtime events via PostgreSQL NOTIFY/LISTEN backplane.
+WordGameBff instances share realtime events via a Redis pub/sub backplane (Equinoctial.Redis).
 ```
 
 ### Layers
@@ -21,7 +21,7 @@ WordGameBff instances share realtime events via PostgreSQL NOTIFY/LISTEN backpla
 | `WordGameBff.Api` | HTTP endpoints, SignalR hub wiring, middleware |
 | `WordGameBff.Application` | PoW, session tokens, game event publishing, abstractions |
 | `WordGameBff.Domain` | Shared models |
-| `WordGameBff.Infrastructure` | CustomAuth, wordgames HTTP client, SignalR, Postgres backplane |
+| `WordGameBff.Infrastructure` | CustomAuth, wordgames HTTP client, SignalR, Redis backplane |
 
 ## Quick start
 
@@ -32,7 +32,7 @@ cp .env.example .env
 # Edit .env with CustomAuth M2M credentials
 
 dotnet run --project src/WordGameBff.Api
-curl http://localhost:8080/health
+curl http://localhost:8180/health
 ```
 
 Development uses low PoW difficulty (`appsettings.Development.json`) and an in-memory realtime backplane.
@@ -41,7 +41,7 @@ Development uses low PoW difficulty (`appsettings.Development.json`) and an in-m
 
 Use this to exercise the micro frontend on phones and tablets while developing locally.
 
-1. Allow incoming connections on ports **8080** (BFF) and **5173** (playground) in your OS firewall.
+1. Allow incoming connections on ports **8180** (BFF) and **5174** (playground) in your OS firewall.
 2. Find your machine's LAN IP (macOS: `ipconfig getifaddr en0`).
 3. Start the BFF (binds all interfaces in Development):
 
@@ -55,19 +55,19 @@ Use this to exercise the micro frontend on phones and tablets while developing l
    cd frontend && npm run dev
    ```
 
-5. On another device on the same network, open `http://<LAN-IP>:5173`.
+5. On another device on the same network, open `http://<LAN-IP>:5174`.
 
-   The playground resolves `api-base` to `http://<LAN-IP>:8080` automatically when not opened via localhost. Override with `?apiBase=http://<LAN-IP>:8080` if needed.
+   The playground resolves `api-base` to `http://<LAN-IP>:8180` automatically when not opened via localhost. Override with `?apiBase=http://<LAN-IP>:8180` if needed.
 
 6. Verify the BFF from the device network:
 
    ```bash
-   curl http://<LAN-IP>:8080/health
+   curl http://<LAN-IP>:8180/health
    ```
 
-For the Podman demo (`http://<LAN-IP>:3000`), the demo page uses the same dynamic `api-base` resolution.
+For the Podman demo (`http://<LAN-IP>:3100`), the demo page uses the same dynamic `api-base` resolution.
 
-In Development, the BFF also accepts CORS preflights from `http://` origins on loopback and private LAN IPs (e.g. `http://192.168.x.x:5173`).
+In Development, the BFF also accepts CORS preflights from `http://` origins on loopback and private LAN IPs (e.g. `http://192.168.x.x:5174`).
 
 ### Docker Compose
 
@@ -78,7 +78,7 @@ cp .env.example .env
 # Set CUSTOMAUTH__CLIENTID and CUSTOMAUTH__CLIENTSECRET
 
 docker compose up --build
-curl http://localhost:8080/health   # wordgamebff — OK
+curl http://localhost:8180/health   # wordgamebff — OK
 curl http://localhost:8081          # wordgames — should fail (not exposed)
 ```
 
@@ -88,14 +88,14 @@ Multi-instance testing:
 docker compose --profile multi-instance up --build
 ```
 
-Realtime clients connect with **WebSockets + skipNegotiation**, so SignalR does not need sticky sessions for the negotiate handshake. REST can round-robin; each WebSocket stays on one instance and realtime delivery fans out via the Postgres backplane.
+Realtime clients connect with **WebSockets + skipNegotiation**, so SignalR does not need sticky sessions for the negotiate handshake. REST can round-robin; each WebSocket stays on one instance and realtime delivery fans out via the Redis backplane.
 
 
 ### Podman + host PostgreSQL (recommended local full stack)
 
 Uses **locally installed PostgreSQL** and **Podman** for wordgames + wordgamebff + an HTML demo page with the micro frontend. **CustomAuth** uses production `https://customauth.fly.dev/` only (no mocks).
 
-**Prerequisites:** Podman, PostgreSQL (running on `localhost:5432`), [wordgames](https://github.com) repo checkout, CustomAuth M2M credentials.
+**Prerequisites:** Podman, PostgreSQL (running on `localhost:5432`), [wordgames](https://github.com) repo checkout, CustomAuth M2M credentials. Redis is optional: if nothing answers on `localhost:6379`, the script starts a **2-node Redis Cluster** (`redis-1` / `redis-2`) in Podman.
 
 ```bash
 cp .env.example .env
@@ -105,17 +105,17 @@ cp .env.example .env
 # Choose: 4) Init DB (first time), then 1) Up
 ```
 
-Open the demo: **http://localhost:3000** — plain HTML embedding `<word-game-widget>`.
+Open the demo: **http://localhost:3100** — plain HTML embedding `<word-game-widget>`.
 
 Verify:
 
 ```bash
-curl http://localhost:8080/health   # wordgamebff — OK
-curl http://localhost:3000/health   # demo nginx — OK
+curl http://localhost:8180/health   # wordgamebff — OK
+curl http://localhost:3100/health   # demo nginx — OK
 curl http://localhost:8081          # wordgames — should fail (not exposed)
 ```
 
-Containers connect to host Postgres via `host.containers.internal`. Databases `wordgame` and `wordgamebff` are created on the host (not in Podman).
+Containers connect to host Postgres via `host.containers.internal`. Databases `wordgame` and `wordgamebff` are created on the host (not in Podman). Redis backplane uses existing host Redis when available; otherwise `cluster://redis-1:6379,redis-2:6379` on the compose network (host debug ports `6479` / `6480`).
 
 Non-interactive: `./scripts/run-podman-local.sh up`
 
@@ -130,12 +130,14 @@ Non-interactive: `./scripts/run-podman-local.sh up`
 | `CustomAuth:Audience` | Upstream audience (`wordgame`) |
 | `Session:SigningKey` | BFF session JWT HMAC key |
 | `Session:ExpiryMinutes` | Session TTL |
-| `Pow:DifficultyBits` | PoW leading zero bits |
+| `Pow:DifficultyBits` | PoW leading zero bits (production **16** ≈ 1–3s browser solve) |
 | `Pow:ChallengeExpirySeconds` | Challenge TTL |
 | `Cors:AllowedOrigins` | Allowed browser origins |
 | `Realtime:Transport` | `SignalR` (default) |
-| `Realtime:BackplaneType` | `PostgreSQL` or `InMemory` |
-| `Realtime:Backplane:ConnectionString` | Postgres for NOTIFY/LISTEN |
+| `Realtime:BackplaneType` | `Redis` (production) or `InMemory` (development) |
+| `Realtime:Backplane:ConnectionString` | Redis connection string |
+| `Realtime:Backplane:ChannelName` | Pub/sub channel (default `wordgamebff_backplane`) |
+| `Stores:ConnectionString` | Postgres for shared BFF state (required when `Stores:Type=PostgreSQL`) |
 
 Environment variable form: `Section__Key` (e.g. `SESSION__SIGNINGKEY`).
 
@@ -179,6 +181,12 @@ dotnet test --filter "CustomAuthTokenServiceTests"
 | WordGameBff | Upstream |
 |---------|----------|
 | `GET /api/me` | Returns BFF session `{ userId }` (not proxied) |
+| `POST /api/sessions` | `POST /sessions` (BFF returns **201** + `Location`; `id` is a 5-char join code) |
+| `GET /api/sessions/{code}` | `GET /sessions/{code}` |
+| `POST /api/sessions/{code}/members` | join session between games |
+| `DELETE /api/sessions/{code}/members/{userId}` | leave / kick between games |
+| `POST /api/sessions/{code}/games` | `POST /sessions/{code}/games` (create+start next game) |
+| `GET /api/sessions/{code}/secret-words/random` | `GET /secretwords/random` (session-admin, **between games** only) |
 | `POST /api/games` | `POST /games` (BFF returns **201** + `Location`) |
 | `GET /api/games/{id}` | `GET /games/{id}` |
 | `POST /api/games/{id}/rounds` | `POST /games/{id}/start` (begin play / first round) |
@@ -187,7 +195,6 @@ dotnet test --filter "CustomAuthTokenServiceTests"
 | `POST /api/games/{id}/turns` | `POST /games/{id}/turn/complete` |
 | `GET /api/games/{id}/assigned-word` | `GET /games/{id}/my-word` |
 | `GET /api/games/{id}/word-pair` | Finished games only: authentic + imposed from upstream finished `secretWord` |
-| `POST /api/games/{id}/votes` | `POST /games/{id}/vote` |
 | `POST /api/games/{id}/votes` | `POST /games/{id}/vote` |
 | `GET /api/games/{gameId}/secret-words/random` | `GET /secretwords/random` (game-scoped access) |
 | `GET /api/games/{gameId}/secret-words/{id}` | `GET /secretwords/{id}` (game-scoped access) |
@@ -239,18 +246,18 @@ Sensitive fields are stripped on `GET /api/games/{id}`: `impostorUserId` (until 
 
 ### Backplane
 
-PostgreSQL `NOTIFY wordgamebff_backplane` fan-out to all WordGameBff instances. Each instance delivers locally via `IGameRealtimeTransport` (SignalR groups).
+Redis pub/sub (`wordgamebff_backplane` channel) fan-out to all WordGameBff instances. Each instance delivers locally via `IGameRealtimeTransport` (SignalR groups), fanning out only to hub connections on that machine.
 
 ## Rate limiting
 
 | Policy | Scope | Limit |
 |--------|-------|-------|
-| `auth-ip` | `/auth/*` | 10/min per IP |
-| `api-ip` | `/api/*` | 60/min per IP |
-| `api-session` | `/api/*` | 120/min per `sub` |
-| `hub-ip` | `/hubs/*` | 10 connect attempts/min per IP |
+| `auth-ip` | `/auth/*` | 120/min per IP |
+| `api-ip` | `/api/*` | 300/min per IP |
+| `api-session` | `/api/*` | 180/min per `sub` |
+| `hub-ip` | `/hubs/*` | 180 connect attempts/min per IP |
 
-Returns `429` with `Retry-After` header.
+Returns `429` with `Retry-After` header. Tuned for shared-NAT party games (~15 players); PoW still bounds auth abuse.
 
 ## Security
 
@@ -265,7 +272,7 @@ Returns `429` with `Retry-After` header.
 - **Embed CDN:** Netlify — [frontend/HOST-INTEGRATION.md](frontend/HOST-INTEGRATION.md), `frontend/netlify.toml`, and Actions **Deploy frontend**
 - **wordgames:** independent Fly app; `GameApi__BaseUrl` is set in [`fly.toml`](fly.toml) `[env]`
 
-Production uses Postgres for SignalR backplane and shared BFF state (schema `bff`: `bff.store`, `bff.game_revisions`). Multi-instance requires `Stores__Type=PostgreSQL` and `Realtime__BackplaneType=PostgreSQL`.
+Production uses Redis for the SignalR backplane and Postgres for shared BFF state (schema `bff`: `bff.store`, `bff.game_revisions`). Multi-instance requires `Stores__Type=PostgreSQL`, `Stores__ConnectionString`, and `Realtime__BackplaneType=Redis`.
 
 ## Tests
 

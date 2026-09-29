@@ -36,6 +36,14 @@ public sealed class PostgresSchemaInitializer : IHostedService
                 ON {BffDbSchema.StoreTable} (expires_at)
                 WHERE expires_at IS NOT NULL;
 
+            CREATE INDEX IF NOT EXISTS idx_bff_store_conn_user
+                ON {BffDbSchema.StoreTable} ((value->>'userId'))
+                WHERE namespace = 'conn';
+
+            CREATE INDEX IF NOT EXISTS idx_bff_store_conn_game
+                ON {BffDbSchema.StoreTable} ((value->>'gameId'))
+                WHERE namespace = 'conn';
+
             CREATE TABLE IF NOT EXISTS {BffDbSchema.GameRevisionsTable} (
                 game_id   BIGINT PRIMARY KEY,
                 revision  BIGINT NOT NULL DEFAULT 0

@@ -1,0 +1,25 @@
+---
+description: Enforce TDD and SOLID for BFF and frontend work
+alwaysApply: true
+---
+
+# TDD and SOLID (wordgamewrap)
+
+## TDD
+- Red → green → refactor for behavior changes.
+- Do not ship untested public surface (API endpoints, application services, SDK methods).
+- Prefer unit tests for rules; e2e for cross-layer flows.
+- Placement: `tests/WordGameBff.Tests` (BFF); `frontend/packages/*/tests` (sdk/ui); `frontend/apps/e2e` (Playwright).
+
+## SOLID / layers
+- **Api** endpoints stay thin; orchestration lives in Application services.
+- Depend on interfaces (`IGameApiClient`, `ISessionService`, …); Infrastructure implements ports.
+- One reason to change per type; extract policies/value helpers (join codes, access policies) instead of bloating UI or controllers.
+- Frontend: `sdk` = API client; `ui` = presentation; avoid dumping domain rules into widgets.
+
+## i18n
+- New user-visible strings: update `frontend/packages/ui/src/i18n/en.ts` **and** `ne.ts` in the same change (`LocaleStrings` requires key parity).
+- Extend `frontend/packages/ui/tests/i18n.ne.test.ts` for session terminology (`सत्र ID`, `प्रशासक`, lobby progress). No English leftovers in session-facing Nepali copy.
+
+## Non-goals
+- No large drive-by refactors or “tests later.”

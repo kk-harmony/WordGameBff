@@ -75,6 +75,8 @@ public interface IGameConnectionRegistry
     Task RefreshAsync(string connectionId, CancellationToken cancellationToken = default);
     Task<int> GetConnectionCountForUserAsync(string userId, CancellationToken cancellationToken = default);
     Task<bool> IsUserConnectedToGameAsync(string userId, long gameId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<string>> GetConnectedUserIdsForGameAsync(long gameId, CancellationToken cancellationToken = default);
+    Task<bool> HasConnectionsForGameAsync(long gameId, CancellationToken cancellationToken = default);
 }
 
 public interface IGameEventPublisher

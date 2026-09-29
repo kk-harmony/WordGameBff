@@ -2,6 +2,39 @@ using System.Text.Json.Serialization;
 
 namespace WordGameBff.Domain.Models;
 
+public sealed class CreateSessionRequest
+{
+    public required string Name { get; init; }
+    public string? DisplayName { get; init; }
+}
+
+public sealed class JoinSessionRequest
+{
+    public string? DisplayName { get; init; }
+}
+
+public sealed class GameSession
+{
+    public string? Id { get; init; }
+    public required string Name { get; init; }
+    public required string AdminUserId { get; init; }
+    public string? Status { get; init; }
+    public int GamesStartedCount { get; init; }
+    public int MaxGames { get; init; }
+    public long? CurrentGameId { get; init; }
+    public string? CurrentGameStatus { get; init; }
+    public IList<SessionMember>? Members { get; init; }
+}
+
+public sealed class SessionMember
+{
+    public long? Id { get; init; }
+    public required string UserId { get; init; }
+    public string? DisplayName { get; init; }
+    public string? Role { get; init; }
+    public int Score { get; init; }
+}
+
 public sealed class CreateGameRequest
 {
     public required string Name { get; init; }

@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { API_BASE, isFullStackAvailable } from './helpers.js';
+import { API_BASE, createGameAsAdmin, isFullStackAvailable } from './helpers.js';
 
 test.describe('CORS', () => {
   test('preflight OPTIONS allows Authorization from playground origin', async ({ request }) => {
-    const origin = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173';
+    const origin = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5174';
     const response = await request.fetch(`${API_BASE}/api/me`, {
       method: 'OPTIONS',
       headers: {
@@ -21,13 +21,7 @@ test.describe('CORS', () => {
   test('authenticated API call succeeds from browser origin', async ({ page, request }) => {
     test.skip(!(await isFullStackAvailable(request)), 'Requires docker-compose stack with wordgames');
 
-    await page.goto('/');
-    await page.waitForFunction(
-      () =>
-        document.querySelector('word-game-widget')?.shadowRoot?.querySelector('[data-action="start-game"]') != null,
-      { timeout: 120_000 },
-    );
-    await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
+    await createGameAsAdmin(page);
     // Sessions persist in localStorage (sessionStorage is only a one-time migrate source).
     await page.waitForFunction(
       () => Object.keys(localStorage).some((key) => key.startsWith('wordgame:session:')),

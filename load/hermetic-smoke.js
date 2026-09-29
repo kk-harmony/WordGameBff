@@ -1,9 +1,11 @@
 import exec from 'k6/execution';
 import { connectHub, getGame, prepareGame } from './lib.js';
 
-const VUS = Number.parseInt(__ENV.VUS || '10', 10);
+// Matches ~15-player shared-NAT party target (hermetic CI uses PoW 8 + auth-ip 120).
+const VUS = Number.parseInt(__ENV.VUS || '15', 10);
 
 export const options = {
+  setupTimeout: '60s',
   scenarios: {
     concurrent_game_clients: {
       executor: 'per-vu-iterations',
@@ -21,7 +23,7 @@ export const options = {
 };
 
 export function setup() {
-  const baseUrl = (__ENV.BFF_URL || 'http://localhost:8080').replace(/\/$/, '');
+  const baseUrl = (__ENV.BFF_URL || 'http://localhost:8180').replace(/\/$/, '');
   return prepareGame(baseUrl, VUS);
 }
 

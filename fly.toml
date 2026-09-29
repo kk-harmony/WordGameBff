@@ -7,9 +7,14 @@ primary_region = "iad"
 [env]
   ASPNETCORE_ENVIRONMENT = "Production"
   Realtime__Transport = "SignalR"
-  Realtime__BackplaneType = "PostgreSQL"
+  Realtime__BackplaneType = "Redis"
   Stores__Type = "PostgreSQL"
-  POW__DIFFICULTYBITS = "20"
+  GameSnapshot__PushEnabled = "true"
+  RateLimiting__AuthIpPermitLimit = "120"
+  RateLimiting__ApiIpPermitLimit = "300"
+  RateLimiting__ApiSessionPermitLimit = "180"
+  RateLimiting__HubIpPermitLimit = "180"
+  POW__DIFFICULTYBITS = "16"
   POW__CHALLENGEEXPIRYSECONDS = "300"
   # Non-secrets (CustomAuth pattern): URLs / CORS / public OIDC settings live here.
   GameApi__BaseUrl = "https://wordgames-api.fly.dev"
@@ -21,10 +26,10 @@ primary_region = "iad"
   # Embed CDN + host app. Localhost so a host running locally can call this BFF.
   Cors__AllowedOrigins__0 = "https://wordgameui.netlify.app"
   Cors__AllowedOrigins__1 = "https://nepalishabda.netlify.app"
-  Cors__AllowedOrigins__2 = "http://localhost:5173"
-  Cors__AllowedOrigins__3 = "http://localhost:3000"
-  Cors__AllowedOrigins__4 = "http://127.0.0.1:5173"
-  Cors__AllowedOrigins__5 = "http://127.0.0.1:3000"
+  Cors__AllowedOrigins__2 = "http://localhost:5174"
+  Cors__AllowedOrigins__3 = "http://localhost:3100"
+  Cors__AllowedOrigins__4 = "http://127.0.0.1:5174"
+  Cors__AllowedOrigins__5 = "http://127.0.0.1:3100"
 
 [http_service]
   internal_port = 8080

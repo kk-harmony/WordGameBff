@@ -7,6 +7,7 @@ namespace WordGameBff.Application.Games;
 public interface ISecretWordService
 {
     Task<AppOutcome> GetRandomAsync(string userId, long gameId, CancellationToken cancellationToken = default);
+    Task<AppOutcome> GetRandomForSessionAsync(string userId, string sessionCode, CancellationToken cancellationToken = default);
     Task<AppOutcome> GetByIdAsync(string userId, long gameId, long secretWordId, CancellationToken cancellationToken = default);
     Task<AppOutcome> CreateAsync(string userId, SecretWord request, CancellationToken cancellationToken = default);
 }
@@ -47,6 +48,45 @@ public sealed class SecretWordService : ISecretWordService
         var response = await _gameApiClient.GetRandomSecretWordAsync(userId, cancellationToken);
         return BuildSecretWordResult(response, includeWordPair: true);
     }
+
+    public async Task<AppOutcome> GetRandomForSessionAsync(
+        string userId,
+        string sessionCode,
+        CancellationToken cancellationToken = default)
+    {
+        var sessionResponse = await _gameApiClient.GetSessionAsync(userId, sessionCode, cancellationToken);
+        if (!sessionResponse.IsSuccess)
+        {
+            return sessionResponse.ToPassthrough(_errorNormalizer);
+        }
+
+        var session = JsonSerializer.Deserialize<GameSession>(sessionResponse.Body, RealtimeJson.Options);
+        if (session is null)
+        {
+            return AppOutcomes.NotFound("NOT_FOUND", "Session not found.");
+        }
+
+        if (!string.Equals(session.AdminUserId, userId, StringComparison.Ordinal))
+        {
+            return AppOutcomes.Forbidden(
+                "FORBIDDEN",
+                "Only the session admin can view secret word pairs before the game starts.");
+        }
+
+        if (IsActiveSessionGameStatus(session.CurrentGameStatus))
+        {
+            return AppOutcomes.Forbidden(
+                "FORBIDDEN",
+                "Secret word pairs are only available between games.");
+        }
+
+        var response = await _gameApiClient.GetRandomSecretWordAsync(userId, cancellationToken);
+        return BuildSecretWordResult(response, includeWordPair: true);
+    }
+
+    private static bool IsActiveSessionGameStatus(string? status) =>
+        string.Equals(status, "IN_PROGRESS", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(status, "VOTING", StringComparison.OrdinalIgnoreCase);
 
     public async Task<AppOutcome> GetByIdAsync(
         string userId,

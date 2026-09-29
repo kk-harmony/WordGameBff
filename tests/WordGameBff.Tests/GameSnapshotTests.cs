@@ -8,7 +8,6 @@ using WordGameBff.Application.Realtime;
 using WordGameBff.Domain.Models;
 using WordGameBff.Infrastructure.Games;
 using WordGameBff.Infrastructure.Realtime;
-using WordGameBff.Infrastructure.Realtime.Postgres;
 
 namespace WordGameBff.Tests;
 
@@ -251,11 +250,18 @@ public class GameSnapshotFanoutTests
         presence.Setup(x => x.EnrichAsync(It.IsAny<Game>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Game game, CancellationToken _) => game);
 
+        var registry = new Mock<IGameConnectionRegistry>();
+        registry.Setup(x => x.HasConnectionsForGameAsync(10, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        registry.Setup(x => x.GetConnectedUserIdsForGameAsync(10, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "admin", "p2" });
+
         var fanout = new GameSnapshotFanout(
             transport.Object,
             new GameSanitizer(),
             presence.Object,
             selfVotes.Object,
+            registry.Object,
             NullLogger<GameSnapshotFanout>.Instance);
 
         var snapshot = new Game
@@ -307,11 +313,16 @@ public class GameSnapshotFanoutTests
         transport.Setup(x => x.PublishToGameAsync(It.IsAny<long>(), It.IsAny<GameRealtimeMessage>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
+        var registry = new Mock<IGameConnectionRegistry>();
+        registry.Setup(x => x.HasConnectionsForGameAsync(3, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
         var fanout = new GameSnapshotFanout(
             transport.Object,
             new GameSanitizer(),
             Mock.Of<IGamePresenceEnricher>(),
             Mock.Of<IGameSelfVoteStore>(),
+            registry.Object,
             NullLogger<GameSnapshotFanout>.Instance);
 
         await fanout.DispatchAsync(new GameRealtimeEnvelope
@@ -331,6 +342,38 @@ public class GameSnapshotFanoutTests
                 It.Is<GameRealtimeMessage>(m => m.Game == null && m.Action == "leave"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    public async Task Dispatch_WithNoLocalConnections_SkipsTransport()
+    {
+        var transport = new Mock<IGameRealtimeTransport>();
+        var registry = new Mock<IGameConnectionRegistry>();
+        registry.Setup(x => x.HasConnectionsForGameAsync(3, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+
+        var fanout = new GameSnapshotFanout(
+            transport.Object,
+            new GameSanitizer(),
+            Mock.Of<IGamePresenceEnricher>(),
+            Mock.Of<IGameSelfVoteStore>(),
+            registry.Object,
+            NullLogger<GameSnapshotFanout>.Instance);
+
+        await fanout.DispatchAsync(new GameRealtimeEnvelope
+        {
+            Notification = new GameRealtimeMessage
+            {
+                Type = "gameChanged",
+                GameId = 3,
+                Revision = 1,
+                Action = "leave",
+            },
+        });
+
+        transport.Verify(
+            x => x.PublishToGameAsync(It.IsAny<long>(), It.IsAny<GameRealtimeMessage>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 }
 
@@ -426,45 +469,6 @@ public class GameEventPublisherSnapshotTests
         await publisher.PublishGameChangedAsync(1, "u1", GameChangeActions.Leave);
 
         Assert.False(cache.TryGet(1, out _));
-    }
-}
-
-public class PostgresBackplanePayloadTests
-{
-    [Fact]
-    public void Envelope_DropsSnapshotWhenSerializedPayloadIsTooLarge()
-    {
-        var backplane = new PostgresGameRealtimeBackplane(
-            Options.Create(new RealtimeOptions()),
-            Options.Create(new GameSnapshotOptions { MaxPayloadBytes = 512 }),
-            NullLogger<PostgresGameRealtimeBackplane>.Instance);
-        var hugeName = new string('x', 500);
-        var envelope = new GameRealtimeEnvelope
-        {
-            Notification = new GameRealtimeMessage
-            {
-                Type = "gameChanged",
-                GameId = 1,
-                Revision = 1,
-                Action = "join",
-            },
-            Snapshot = new Game
-            {
-                Id = 1,
-                Name = hugeName,
-                AdminUserId = "u1",
-                Status = "WAITING",
-            },
-            SnapshotJson = $$"""{"id":1,"name":"{{hugeName}}","adminUserId":"u1","status":"WAITING"}""",
-            InvalidateCache = false,
-        };
-
-        var payload = backplane.BuildPayload(envelope);
-        var parsed = GameRealtimeEnvelope.FromJson(payload)!;
-
-        Assert.Null(parsed.Snapshot);
-        Assert.Null(parsed.SnapshotJson);
-        Assert.True(parsed.InvalidateCache);
     }
 }
 

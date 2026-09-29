@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-time Fly bootstrap for WordGameBff: app + Postgres + credential secrets.
-# Non-secrets (URLs, CORS, Authority) live in fly.toml [env] — edit there, not here.
+# One-time Fly bootstrap for WordGameBff: app + Postgres + Redis + credential secrets.
+# Non-secrets (URLs, CORS, Authority, BackplaneType) live in fly.toml [env] — edit there, not here.
 #
 # Usage:
 #   cp .env.fly.example .env.fly   # fill secrets
@@ -52,8 +52,8 @@ pg_exists() {
   fly status -a "$PG_NAME" >/dev/null 2>&1
 }
 
-resolve_npgsql() {
-  local cs="${REALTIME__BACKPLANE__CONNECTIONSTRING:-}"
+resolve_stores_npgsql() {
+  local cs="${STORES__CONNECTIONSTRING:-}"
   if [[ -n "$cs" && "$cs" != *"YOUR_HOST"* && "$cs" != *"YOUR_PASSWORD"* ]]; then
     if [[ "$cs" != *"SSL Mode"* && "$cs" != *"Ssl Mode"* ]]; then
       cs="${cs};SSL Mode=Require"
@@ -63,7 +63,7 @@ resolve_npgsql() {
   fi
 
   if [[ -z "${FLY_PG_HOST:-}" || -z "${FLY_PG_DB:-}" || -z "${FLY_PG_USER:-}" || -z "${FLY_PG_PASSWORD:-}" ]]; then
-    error "Set REALTIME__BACKPLANE__CONNECTIONSTRING (Npgsql) or FLY_PG_HOST/DB/USER/PASSWORD in .env.fly"
+    error "Set STORES__CONNECTIONSTRING (Npgsql) or FLY_PG_HOST/DB/USER/PASSWORD in .env.fly"
     error "Get values via: fly postgres db list -a ${PG_NAME}  (or Fly Postgres dashboard)"
     error "Do NOT use Fly attach DATABASE_URL (postgres:// URI) — same as CustomAuth."
     exit 1
@@ -77,6 +77,17 @@ resolve_npgsql() {
     "$FLY_PG_PASSWORD"
 }
 
+resolve_redis() {
+  local cs="${REALTIME__BACKPLANE__CONNECTIONSTRING:-}"
+  if [[ -z "$cs" || "$cs" == *"YOUR_REDIS"* || "$cs" == *"YOUR_PASSWORD"* ]]; then
+    error "Set REALTIME__BACKPLANE__CONNECTIONSTRING (Equinoctial Redis form) in .env.fly"
+    error "Example: host=YOUR_REDIS_HOST;port=6379;password=YOUR_PASSWORD"
+    error "Provision with: fly redis create   (Upstash) or any Redis reachable from the app"
+    exit 1
+  fi
+  printf '%s' "$cs"
+}
+
 main() {
   require_cmd fly
   require_cmd openssl
@@ -87,8 +98,9 @@ main() {
     exit 1
   fi
 
-  local npgsql
-  npgsql="$(resolve_npgsql)"
+  local npgsql redis_cs
+  npgsql="$(resolve_stores_npgsql)"
+  redis_cs="$(resolve_redis)"
 
   local session_key="${SESSION__SIGNINGKEY:-}"
   if [[ -z "$session_key" || "$session_key" == change-me* ]]; then
@@ -120,9 +132,10 @@ main() {
     warn "Attach skipped or already attached — continuing"
   fi
 
-  info "Setting Fly secrets (credentials only; URLs/CORS are in fly.toml)"
+  info "Setting Fly secrets (credentials only; URLs/CORS/BackplaneType are in fly.toml)"
   fly secrets set -a "$APP_NAME" \
-    "REALTIME__BACKPLANE__CONNECTIONSTRING=${npgsql}" \
+    "STORES__CONNECTIONSTRING=${npgsql}" \
+    "REALTIME__BACKPLANE__CONNECTIONSTRING=${redis_cs}" \
     "SESSION__SIGNINGKEY=${session_key}" \
     "CUSTOMAUTH__CLIENTID=${CUSTOMAUTH__CLIENTID}" \
     "CUSTOMAUTH__CLIENTSECRET=${CUSTOMAUTH__CLIENTSECRET}"
@@ -131,12 +144,14 @@ main() {
   info "Bootstrap complete."
   echo
   echo "Next steps:"
-  echo "  1. Edit fly.toml [env] CORS / GameApi__BaseUrl if still placeholders, then commit."
-  echo "  2. Create a deploy token and add GitHub Actions secrets:"
+  echo "  1. After first Postgres boot, optionally run scripts/migrate-bff-postgres-after-redis.sql"
+  echo "     (conn indexes). Schema initializer also creates them on new environments."
+  echo "  2. Edit fly.toml [env] CORS / GameApi__BaseUrl if still placeholders, then commit."
+  echo "  3. Create a deploy token and add GitHub Actions secrets:"
   echo "       fly tokens create deploy -a ${APP_NAME} -x 999999h"
   echo "       → repository secret FLY_API_TOKEN"
   echo "       → NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID for frontend deploy"
-  echo "  3. Push to main or run workflow_dispatch on Deploy BFF / Deploy frontend."
+  echo "  4. Push to main or run workflow_dispatch on Deploy BFF / Deploy frontend."
   echo
   echo "Verify after first deploy:"
   echo "  curl -sS https://${APP_NAME}.fly.dev/health/live"

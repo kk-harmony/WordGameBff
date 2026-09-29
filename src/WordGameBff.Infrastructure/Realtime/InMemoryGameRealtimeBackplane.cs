@@ -4,7 +4,7 @@ using WordGameBff.Application.Realtime;
 namespace WordGameBff.Infrastructure.Realtime;
 
 /// <summary>
-/// Development backplane: apply cache side-effects and fan out directly (no Postgres listener).
+/// Development backplane: apply cache side-effects and fan out directly (no Redis listener).
 /// </summary>
 public sealed class InMemoryGameRealtimeBackplane : IGameRealtimeBackplane
 {

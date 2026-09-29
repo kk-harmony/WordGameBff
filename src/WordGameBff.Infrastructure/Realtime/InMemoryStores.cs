@@ -49,5 +49,18 @@ public sealed class InMemoryGameConnectionRegistry : IGameConnectionRegistry
     public Task<bool> IsUserConnectedToGameAsync(string userId, long gameId, CancellationToken cancellationToken = default) =>
         Task.FromResult(_connections.Values.Any(entry => entry.UserId == userId && entry.GameId == gameId));
 
+    public Task<IReadOnlyList<string>> GetConnectedUserIdsForGameAsync(long gameId, CancellationToken cancellationToken = default)
+    {
+        var userIds = _connections.Values
+            .Where(entry => entry.GameId == gameId)
+            .Select(entry => entry.UserId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return Task.FromResult<IReadOnlyList<string>>(userIds);
+    }
+
+    public Task<bool> HasConnectionsForGameAsync(long gameId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_connections.Values.Any(entry => entry.GameId == gameId));
+
     private sealed record ConnectionEntry(string UserId, long GameId);
 }

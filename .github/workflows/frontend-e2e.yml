@@ -52,18 +52,18 @@ jobs:
         working-directory: frontend
         run: npm run dev &
         env:
-          VITE_API_BASE: http://localhost:8080
-          VITE_EMBED_CDN: http://localhost:8082
+          VITE_API_BASE: http://localhost:8180
+          VITE_EMBED_CDN: http://localhost:8083
 
       - name: Wait for playground
-        run: timeout 60 bash -c 'until curl -sf http://localhost:5173; do sleep 2; done'
+        run: timeout 60 bash -c 'until curl -sf http://localhost:5174; do sleep 2; done'
 
       - name: Full E2E suite
         working-directory: frontend
         run: npm run test:e2e
         env:
-          BFF_URL: http://localhost:8080
-          PLAYWRIGHT_BASE_URL: http://localhost:5173
+          BFF_URL: http://localhost:8180
+          PLAYWRIGHT_BASE_URL: http://localhost:5174
           REQUIRE_FULL_STACK: 'true'
 
       - name: Show stack diagnostics

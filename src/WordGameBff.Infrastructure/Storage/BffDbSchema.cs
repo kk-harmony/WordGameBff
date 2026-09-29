@@ -2,7 +2,6 @@ namespace WordGameBff.Infrastructure.Storage;
 
 /// <summary>
 /// Dedicated Postgres schema for all BFF shared state (KV store + revisions).
-/// SignalR NOTIFY/LISTEN remains on the database connection; tables live under this schema.
 /// </summary>
 internal static class BffDbSchema
 {

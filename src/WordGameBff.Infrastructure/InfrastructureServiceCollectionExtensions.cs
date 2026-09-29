@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using WordGameBff.Application.Auth;
 using WordGameBff.Application.Configuration;
 using WordGameBff.Application.Games;
@@ -8,7 +9,7 @@ using WordGameBff.Application.Realtime;
 using WordGameBff.Infrastructure.Auth;
 using WordGameBff.Infrastructure.Games;
 using WordGameBff.Infrastructure.Realtime;
-using WordGameBff.Infrastructure.Realtime.Postgres;
+using WordGameBff.Infrastructure.Realtime.Redis;
 using WordGameBff.Infrastructure.Realtime.SignalR;
 using WordGameBff.Infrastructure.Storage;
 
@@ -32,6 +33,8 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddMemoryCache();
         services.AddSingleton<IGameSnapshotCache, MemoryGameSnapshotCache>();
+        services.AddSingleton<GameRealtimeEnvelopePayloadBuilder>();
+        services.AddSingleton<BackplaneEnvelopeDispatcher>();
 
         var usePostgresStores = StoreConnectionResolver.UsePostgreSqlStores(configuration);
         var storeConnectionString = StoreConnectionResolver.Resolve(configuration);
@@ -41,8 +44,7 @@ public static class InfrastructureServiceCollectionExtensions
             if (string.IsNullOrWhiteSpace(storeConnectionString))
             {
                 throw new InvalidOperationException(
-                    "Stores:Type is PostgreSQL but no connection string is configured. " +
-                    "Set Stores:ConnectionString or Realtime:Backplane:ConnectionString.");
+                    "Stores:Type is PostgreSQL but no connection string is configured. Set Stores:ConnectionString.");
             }
 
             services.AddSingleton(new PostgresStoreConnection(storeConnectionString));
@@ -74,13 +76,22 @@ public static class InfrastructureServiceCollectionExtensions
             services.AddSingleton<IGameRealtimeTransport, SignalRGameRealtimeTransport>();
         }
 
-        var usePostgresBackplane = string.Equals(realtime.BackplaneType, "PostgreSQL", StringComparison.OrdinalIgnoreCase)
+        var useRedisBackplane = string.Equals(realtime.BackplaneType, "Redis", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(realtime.Backplane.ConnectionString);
 
-        if (usePostgresBackplane)
+        if (useRedisBackplane)
         {
-            services.AddSingleton<IGameRealtimeBackplane, PostgresGameRealtimeBackplane>();
-            services.AddHostedService<PostgresBackplaneListener>();
+            services.AddSingleton<IRedisBackplaneMessaging>(sp =>
+            {
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RealtimeOptions>>().Value;
+                var logger = sp.GetRequiredService<ILogger<EquinoctialRedisBackplaneMessaging>>();
+                return EquinoctialRedisBackplaneMessaging
+                    .ConnectAsync(options.Backplane.ConnectionString, logger)
+                    .GetAwaiter()
+                    .GetResult();
+            });
+            services.AddSingleton<IGameRealtimeBackplane, RedisGameRealtimeBackplane>();
+            services.AddHostedService<RedisBackplaneListener>();
         }
         else if (environment.IsDevelopment())
         {
@@ -89,7 +100,7 @@ public static class InfrastructureServiceCollectionExtensions
         else
         {
             throw new InvalidOperationException(
-                "Production requires Realtime:BackplaneType=PostgreSQL with a configured connection string.");
+                "Production requires Realtime:BackplaneType=Redis with a configured connection string.");
         }
 
         return services;

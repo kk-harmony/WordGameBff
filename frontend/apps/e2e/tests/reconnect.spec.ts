@@ -1,40 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { isFullStackAvailable } from './helpers.js';
-
-async function waitForHome(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(
-    () =>
-      document.querySelector('word-game-widget')?.shadowRoot?.querySelector('[data-action="start-game"]') != null,
-    { timeout: 120_000 },
-  );
-}
-
-async function createGameAsAdmin(page: import('@playwright/test').Page): Promise<number> {
-  await waitForHome(page);
-  await page.locator('word-game-widget').locator('[data-action="start-game"]').click();
-  await page.waitForFunction(
-    () => {
-      const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent && /^\d+$/.test(value.textContent.trim());
-    },
-    { timeout: 120_000 },
-  );
-  const gameIdText = await page.locator('word-game-widget').locator('.wg-game-id-value').textContent();
-  expect(gameIdText).toBeTruthy();
-  return Number.parseInt(gameIdText!.trim(), 10);
-}
-
-async function waitForWaitingRoom(page: import('@playwright/test').Page, gameId: number): Promise<void> {
-  await page.waitForFunction(
-    (id) => {
-      const value = document.querySelector('word-game-widget')?.shadowRoot?.querySelector('.wg-game-id-value');
-      return value?.textContent?.trim() === String(id);
-    },
-    gameId,
-    { timeout: 120_000 },
-  );
-}
+import {
+  createGameAsAdmin,
+  isFullStackAvailable,
+  joinGameViaTile,
+  waitForWaitingRoom,
+} from './helpers.js';
 
 test.describe('reconnect', () => {
   test('resumes waiting room after page reload', async ({ page, request }) => {
@@ -63,11 +33,7 @@ test.describe('reconnect', () => {
     const gameId = await createGameAsAdmin(adminPage);
 
     for (const joinPage of [player2Page, player3Page]) {
-      await waitForHome(joinPage);
-      await joinPage.locator('word-game-widget').locator('[data-action="show-join"]').click();
-      await joinPage.locator('word-game-widget').locator('#wg-join-id').fill(String(gameId));
-      await joinPage.locator('word-game-widget').locator('[data-action="join-submit"]').click();
-      await waitForWaitingRoom(joinPage, gameId);
+      await joinGameViaTile(joinPage, gameId);
     }
 
     await adminPage.waitForFunction(
@@ -109,40 +75,50 @@ test.describe('reconnect', () => {
     await player3Context.close();
   });
 
-  test('returns to home after reload when stored game is finished', async ({ page, request }) => {
+  test('returns to session lobby after reload when stored game is finished', async ({ page, request }) => {
     test.skip(!(await isFullStackAvailable(request)), 'Requires docker-compose stack with wordgames');
 
-    const gameId = await createGameAsAdmin(page);
-    await waitForWaitingRoom(page, gameId);
+    const sessionCode = await createGameAsAdmin(page);
+    await waitForWaitingRoom(page, sessionCode);
 
-    await page.evaluate((id) => {
-      const keys = Object.keys(localStorage).filter((k) => k.startsWith('wordgame:session:'));
-      const sessionKey = keys[0];
-      if (!sessionKey) {
-        return;
-      }
-      const session = JSON.parse(localStorage.getItem(sessionKey) ?? '{}') as { userId?: string };
-      if (!session.userId) {
-        return;
-      }
-      const apiBase = sessionKey.replace('wordgame:session:', '');
-      localStorage.setItem(
-        `wordgame:activeGame:${apiBase}`,
-        JSON.stringify({ gameId: id, userId: session.userId }),
-      );
-    }, gameId);
+    const finishedGameId = 9_001;
+    await page.evaluate(
+      ({ code, gameId }) => {
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith('wordgame:session:'));
+        const sessionKey = keys[0];
+        if (!sessionKey) {
+          return;
+        }
+        const session = JSON.parse(localStorage.getItem(sessionKey) ?? '{}') as { userId?: string };
+        if (!session.userId) {
+          return;
+        }
+        const apiBase = sessionKey.replace('wordgame:session:', '');
+        localStorage.setItem(
+          `wordgame:activeLobby:${apiBase}`,
+          JSON.stringify({ sessionId: code, userId: session.userId, gameId }),
+        );
+      },
+      { code: sessionCode, gameId: finishedGameId },
+    );
 
-    await page.route(`**/api/games/${gameId}`, async (route) => {
-      const response = await route.fetch();
-      const game = (await response.json()) as Record<string, unknown>;
+    await page.route(`**/api/games/${finishedGameId}`, async (route) => {
       await route.fulfill({
-        response,
-        json: { ...game, status: 'FINISHED', outcome: 'IMPOSTOR_IDENTIFIED' },
+        status: 200,
+        contentType: 'application/json',
+        json: {
+          id: finishedGameId,
+          name: 'Lobby',
+          adminUserId: 'admin',
+          status: 'FINISHED',
+          outcome: 'IMPOSTOR_IDENTIFIED',
+          members: [],
+        },
       });
     });
 
     await page.reload();
-    await waitForHome(page);
+    await waitForWaitingRoom(page, sessionCode);
   });
 
   test('resyncs game state after hub disconnect', async ({ page, request }) => {

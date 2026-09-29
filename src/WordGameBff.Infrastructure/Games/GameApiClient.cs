@@ -87,6 +87,29 @@ public sealed class GameApiClient : IGameApiClient
     public Task<GameApiResponse> GetSecretWordAsync(string userId, long secretWordId, CancellationToken cancellationToken = default) =>
         SendAsync(userId, HttpMethod.Get, $"secretwords/{secretWordId}", null, cancellationToken);
 
+    public Task<GameApiResponse> CreateSessionAsync(string userId, CreateSessionRequest request, CancellationToken cancellationToken = default) =>
+        SendAsync(userId, HttpMethod.Post, "sessions", request, cancellationToken);
+
+    public Task<GameApiResponse> GetSessionAsync(string userId, string sessionCode, CancellationToken cancellationToken = default) =>
+        SendAsync(userId, HttpMethod.Get, $"sessions/{Uri.EscapeDataString(sessionCode)}", null, cancellationToken);
+
+    public Task<GameApiResponse> JoinSessionAsync(string userId, string sessionCode, JoinSessionRequest? request = null, CancellationToken cancellationToken = default)
+    {
+        var path = $"sessions/{Uri.EscapeDataString(sessionCode)}/members";
+        if (!string.IsNullOrWhiteSpace(request?.DisplayName))
+        {
+            path += $"?displayName={Uri.EscapeDataString(request.DisplayName.Trim())}";
+        }
+
+        return SendAsync(userId, HttpMethod.Post, path, null, cancellationToken);
+    }
+
+    public Task<GameApiResponse> RemoveSessionMemberAsync(string userId, string sessionCode, string memberUserId, CancellationToken cancellationToken = default) =>
+        SendAsync(userId, HttpMethod.Delete, $"sessions/{Uri.EscapeDataString(sessionCode)}/members/{Uri.EscapeDataString(memberUserId)}", null, cancellationToken);
+
+    public Task<GameApiResponse> StartSessionGameAsync(string userId, string sessionCode, StartGameRequest request, CancellationToken cancellationToken = default) =>
+        SendAsync(userId, HttpMethod.Post, $"sessions/{Uri.EscapeDataString(sessionCode)}/games", request, cancellationToken);
+
     public async Task<Game?> GetGameModelAsync(string userId, long gameId, CancellationToken cancellationToken = default)
     {
         var response = await GetGameAsync(userId, gameId, cancellationToken);

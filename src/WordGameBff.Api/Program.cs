@@ -57,12 +57,12 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
 var realtimeOptions = builder.Configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>() ?? new RealtimeOptions();
-var usesPostgresBackplane = string.Equals(realtimeOptions.BackplaneType, "PostgreSQL", StringComparison.OrdinalIgnoreCase)
+var usesRedisBackplane = string.Equals(realtimeOptions.BackplaneType, "Redis", StringComparison.OrdinalIgnoreCase)
     && !string.IsNullOrWhiteSpace(realtimeOptions.Backplane.ConnectionString);
 var usesPostgresStores = StoreConnectionResolver.UsePostgreSqlStores(builder.Configuration);
 
 var healthChecks = builder.Services.AddHealthChecks();
-if (usesPostgresBackplane || usesPostgresStores)
+if (usesPostgresStores)
 {
     var postgresConnectionString = StoreConnectionResolver.Resolve(builder.Configuration);
     if (!string.IsNullOrWhiteSpace(postgresConnectionString))
@@ -71,15 +71,23 @@ if (usesPostgresBackplane || usesPostgresStores)
     }
 }
 
+if (usesRedisBackplane)
+{
+    healthChecks.AddCheck<WordGameBff.Infrastructure.Realtime.Redis.RedisBackplaneHealthCheck>(
+        "redis",
+        tags: ["ready"]);
+}
+
 var app = builder.Build();
 
 app.UseForwardedHeaders();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseCors();
 app.UseExceptionHandler();
-app.UseRateLimiter();
+// Auth must run before the rate limiter so api-session can partition on JWT sub.
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {
@@ -110,6 +118,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
 
 app.MapAuthEndpoints();
 app.MapGameEndpoints();
+app.MapSessionEndpoints();
 app.MapSecretWordEndpoints();
 
 app.MapHub<GameHub>(GameHub.Path)
