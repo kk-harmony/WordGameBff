@@ -12,12 +12,13 @@ public static class StoreConnectionResolver
     }
 
     /// <summary>
-    /// Redis stores use <see cref="StoreOptions.ConnectionString"/> when set; otherwise the SignalR backplane Redis URL.
+    /// When <c>Stores:Type=Redis</c>, uses <see cref="StoreOptions.ConnectionString"/> if set;
+    /// otherwise the SignalR backplane Redis URL. Postgres store strings must not be used here.
     /// </summary>
     public static string ResolveRedisConnectionString(IConfiguration configuration)
     {
         var storeOptions = configuration.GetSection(StoreOptions.SectionName).Get<StoreOptions>() ?? new StoreOptions();
-        if (!string.IsNullOrWhiteSpace(storeOptions.ConnectionString))
+        if (UseRedisStores(configuration) && !string.IsNullOrWhiteSpace(storeOptions.ConnectionString))
         {
             return storeOptions.ConnectionString;
         }

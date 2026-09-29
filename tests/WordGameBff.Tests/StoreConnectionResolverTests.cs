@@ -90,11 +90,12 @@ public class StoreConnectionResolverTests
     }
 
     [Fact]
-    public void ResolveRedisConnectionString_PrefersStoresConnectionString()
+    public void ResolveRedisConnectionString_PrefersStoresConnectionString_WhenTypeIsRedis()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
+                ["Stores:Type"] = "Redis",
                 ["Stores:ConnectionString"] = "host=stores-redis;port=6379",
                 ["Realtime:Backplane:ConnectionString"] = "host=backplane-redis;port=6379",
             })
@@ -102,6 +103,23 @@ public class StoreConnectionResolverTests
 
         Assert.Equal(
             "host=stores-redis;port=6379",
+            StoreConnectionResolver.ResolveRedisConnectionString(configuration));
+    }
+
+    [Fact]
+    public void ResolveRedisConnectionString_IgnoresPostgresStoreConnectionString()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Stores:Type"] = "PostgreSQL",
+                ["Stores:ConnectionString"] = "Host=db;Port=5432;Database=wordgamebff;Username=u;Password=p",
+                ["Realtime:Backplane:ConnectionString"] = "cluster://redis-1:6379,redis-2:6379",
+            })
+            .Build();
+
+        Assert.Equal(
+            "cluster://redis-1:6379,redis-2:6379",
             StoreConnectionResolver.ResolveRedisConnectionString(configuration));
     }
 }
