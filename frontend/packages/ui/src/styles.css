@@ -497,6 +497,34 @@
   background: var(--wg-surface);
 }
 
+.wg-tabs--app {
+  margin-bottom: 0.75rem;
+}
+
+.wg-tabs--home {
+  margin-top: 0.25rem;
+}
+
+.wg-app-panel {
+  min-width: 0;
+}
+
+.wg-rules {
+  margin: 0;
+}
+
+.wg-rules__list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--wg-text);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+.wg-rules__list li + li {
+  margin-top: 0.75rem;
+}
+
 .wg-tab {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;

@@ -61,6 +61,7 @@ export interface WordGameAppOptions {
 
 type Screen = 'home' | 'waiting' | 'authenticating' | 'game' | 'error';
 type HomeView = 'player' | 'admin';
+type AppTab = 'play' | 'rules';
 type AuthPurpose = 'start' | 'join';
 type DisplayMember = {
   id?: number;
@@ -111,6 +112,7 @@ export class WordGameApp {
   private userId: string | null = null;
   private screen: Screen = 'home';
   private homeView: HomeView = 'player';
+  private appTab: AppTab = 'play';
   private authPurpose: AuthPurpose | null = null;
   private loading = false;
   private error: { message: string; retryable: boolean } | null = null;
@@ -875,11 +877,13 @@ export class WordGameApp {
       this.lobbySession = null;
       this.screen = 'home';
       this.homeView = 'player';
+      this.appTab = 'play';
       this.render();
       return;
     }
 
     // Keep waiting screen visible while refreshing the lobby after a finished game.
+    this.appTab = 'play';
     this.screen = 'waiting';
     await this.withLoading(async (api) => {
       const session = await api.getSession(sessionId);
@@ -1063,6 +1067,7 @@ export class WordGameApp {
     this.clearGameSession();
     this.screen = 'home';
     this.homeView = 'player';
+    this.appTab = 'play';
     this.render();
   }
 
@@ -1363,6 +1368,73 @@ export class WordGameApp {
   }
 
   private buildHtml(): string {
+    const isAdminLobby =
+      this.appTab === 'play' &&
+      this.screen === 'waiting' &&
+      this.lobbySession != null &&
+      this.isSessionAdmin(this.lobbySession);
+    const statusRole =
+      this.appTab === 'play' && this.screen === 'authenticating' ? ' role="status"' : '';
+    const body = this.appTab === 'rules' ? this.renderRulesPanel() : this.renderPlayScreen();
+    return `
+      <div class="wg-root${isAdminLobby ? ' wg-root--admin' : ''}"${statusRole}>
+        ${this.renderAppTabs()}
+        <div
+          class="wg-app-panel"
+          role="tabpanel"
+          id="wg-app-panel"
+          aria-labelledby="wg-app-tab-${this.appTab}"
+        >
+          ${body}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderAppTabs(): string {
+    const isPlay = this.appTab === 'play';
+    return `
+      <div class="wg-tabs wg-tabs--app" role="tablist" aria-label="${this.escapeAttr(this.strings.appTabsAria)}">
+        <button
+          type="button"
+          class="wg-tab${isPlay ? ' wg-tab--active' : ''}"
+          role="tab"
+          id="wg-app-tab-play"
+          data-action="app-tab-play"
+          data-testid="app-tab-play"
+          aria-selected="${isPlay ? 'true' : 'false'}"
+          aria-controls="wg-app-panel"
+        >${this.strings.tabPlay}</button>
+        <button
+          type="button"
+          class="wg-tab${!isPlay ? ' wg-tab--active' : ''}"
+          role="tab"
+          id="wg-app-tab-rules"
+          data-action="app-tab-rules"
+          data-testid="app-tab-rules"
+          aria-selected="${!isPlay ? 'true' : 'false'}"
+          aria-controls="wg-app-panel"
+        >${this.strings.tabRules}</button>
+      </div>
+    `;
+  }
+
+  private renderRulesPanel(): string {
+    return `
+      <section class="wg-rules" data-testid="rules-panel">
+        <h1 class="wg-title" data-autofocus tabindex="-1">${this.escapeHtml(this.strings.rulesTitle)}</h1>
+        <ol class="wg-rules__list">
+          <li>${this.escapeHtml(this.strings.rulesOverview)}</li>
+          <li>${this.escapeHtml(this.strings.rulesTurns)}</li>
+          <li>${this.escapeHtml(this.strings.rulesVote)}</li>
+          <li>${this.escapeHtml(this.strings.rulesSession)}</li>
+        </ol>
+        <div class="wg-live" data-live aria-live="polite">${this.escapeHtml(this.strings.rulesTitle)}</div>
+      </section>
+    `;
+  }
+
+  private renderPlayScreen(): string {
     if (this.screen === 'authenticating') {
       return this.renderAuthenticating();
     }
@@ -1381,26 +1453,22 @@ export class WordGameApp {
   private renderAuthenticating(): string {
     const title = this.authPurpose ? this.strings.botVerification : this.strings.authenticating;
     return `
-      <div class="wg-root" role="status">
-        <h1 class="wg-title">${title}</h1>
-        <p class="wg-muted">
-          <span class="wg-spinner" aria-hidden="true"></span>
-          ${formatString(this.strings.powProgress, { iterations: this.powIterations })}
-        </p>
-        <div class="wg-live" data-live aria-live="polite">${title}</div>
-      </div>
+      <h1 class="wg-title">${title}</h1>
+      <p class="wg-muted">
+        <span class="wg-spinner" aria-hidden="true"></span>
+        ${formatString(this.strings.powProgress, { iterations: this.powIterations })}
+      </p>
+      <div class="wg-live" data-live aria-live="polite">${title}</div>
     `;
   }
 
   private renderError(): string {
     return `
-      <div class="wg-root">
-        <h1 class="wg-title">${this.strings.error}</h1>
-        <div class="wg-error" role="alert">${this.escapeHtml(this.error?.message ?? '')}</div>
-        ${this.error?.retryable ? `<button type="button" class="wg-btn wg-btn--icon" data-action="retry" aria-label="${this.escapeAttr(this.strings.retryAria)}" data-autofocus>${this.strings.retry}</button>` : ''}
-        <button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="go-home" aria-label="${this.escapeAttr(this.strings.joinBackAria)}">${this.strings.joinBack}</button>
-        <div class="wg-live" data-live aria-live="polite">${this.escapeHtml(this.error?.message ?? '')}</div>
-      </div>
+      <h1 class="wg-title">${this.strings.error}</h1>
+      <div class="wg-error" role="alert">${this.escapeHtml(this.error?.message ?? '')}</div>
+      ${this.error?.retryable ? `<button type="button" class="wg-btn wg-btn--icon" data-action="retry" aria-label="${this.escapeAttr(this.strings.retryAria)}" data-autofocus>${this.strings.retry}</button>` : ''}
+      <button type="button" class="wg-btn wg-btn--icon wg-btn--back wg-btn-secondary" data-action="go-home" aria-label="${this.escapeAttr(this.strings.joinBackAria)}">${this.strings.joinBack}</button>
+      <div class="wg-live" data-live aria-live="polite">${this.escapeHtml(this.error?.message ?? '')}</div>
     `;
   }
 
@@ -1426,18 +1494,16 @@ export class WordGameApp {
       `;
 
     return `
-      <div class="wg-root">
-        <h1 class="wg-title" tabindex="-1">${this.strings.homeTitle}</h1>
-        <p class="wg-intro">${this.strings.gameIntro}</p>
-        ${this.renderPlayerNameField(true)}
-        <div class="wg-tabs" role="tablist" aria-label="${this.escapeAttr(this.strings.homeTabsAria)}">
-          <button type="button" class="wg-tab${isPlayer ? ' wg-tab--active' : ''}" role="tab" id="wg-home-tab-player" data-action="home-tab-player" aria-selected="${isPlayer ? 'true' : 'false'}" aria-controls="wg-home-panel-player" ${this.loading ? 'disabled' : ''}>${this.strings.tabPlayer}</button>
-          <button type="button" class="wg-tab${!isPlayer ? ' wg-tab--active' : ''}" role="tab" id="wg-home-tab-admin" data-action="home-tab-admin" aria-selected="${!isPlayer ? 'true' : 'false'}" aria-controls="wg-home-panel-admin" ${this.loading ? 'disabled' : ''}>${this.strings.tabAdmin}</button>
-        </div>
-        ${panel}
-        ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
-        <div class="wg-live" data-live aria-live="polite">${this.strings.homeTitle}</div>
+      <h1 class="wg-title" tabindex="-1">${this.strings.homeTitle}</h1>
+      <p class="wg-intro">${this.strings.gameIntro}</p>
+      ${this.renderPlayerNameField(true)}
+      <div class="wg-tabs wg-tabs--home" role="tablist" aria-label="${this.escapeAttr(this.strings.homeTabsAria)}">
+        <button type="button" class="wg-tab${isPlayer ? ' wg-tab--active' : ''}" role="tab" id="wg-home-tab-player" data-action="home-tab-player" aria-selected="${isPlayer ? 'true' : 'false'}" aria-controls="wg-home-panel-player" ${this.loading ? 'disabled' : ''}>${this.strings.tabPlayer}</button>
+        <button type="button" class="wg-tab${!isPlayer ? ' wg-tab--active' : ''}" role="tab" id="wg-home-tab-admin" data-action="home-tab-admin" aria-selected="${!isPlayer ? 'true' : 'false'}" aria-controls="wg-home-panel-admin" ${this.loading ? 'disabled' : ''}>${this.strings.tabAdmin}</button>
       </div>
+      ${panel}
+      ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
+      <div class="wg-live" data-live aria-live="polite">${this.strings.homeTitle}</div>
     `;
   }
 
@@ -1474,44 +1540,42 @@ export class WordGameApp {
         : '';
 
     return `
-      <div class="wg-root${isAdmin ? ' wg-root--admin' : ''}">
-        <h1 class="wg-title">${isAdmin ? this.strings.adminWaitingRoom : this.strings.waitingRoom}</h1>
-        ${isAdmin ? `<p class="wg-admin-banner">${formatString(this.strings.adminHint, { required: MIN_PLAYERS_TO_START })}</p>` : ''}
-        <div class="wg-game-id-card">
-          <p class="wg-label">${this.strings.shareGameId}</p>
-          <p class="wg-game-id-value" data-autofocus tabindex="-1">${session.id ?? '—'}</p>
-          <button type="button" class="wg-btn wg-btn--icon" data-action="copy-game-id" aria-label="${this.escapeAttr(this.strings.copyGameIdAria)}" ${this.loading ? 'disabled' : ''}>
-            ${this.copiedGameId ? this.strings.copiedGameId : this.strings.copyGameId}
-          </button>
-        </div>
-        ${progressHtml}
-        <div class="wg-section">
-          <p class="wg-label">${this.strings.members} (${members.length}/${MIN_PLAYERS_TO_START})</p>
-          <ul class="wg-member-list">
-            ${members.length === 0
-              ? `<li class="wg-muted">${this.strings.noMembers}</li>`
-              : members
-                  .map((m) =>
-                    this.renderLobbyMemberRow(m, members, this.canKickSessionMember(m, session)),
-                  )
-                  .join('')}
-          </ul>
-        </div>
-        ${isAdmin ? `
-          <div class="wg-start-block">
-            <button type="button" class="wg-btn wg-btn--icon wg-btn--start" data-action="start" aria-label="${this.escapeAttr(this.strings.startGameAria)}" ${startDisabled ? 'disabled' : ''}>${this.strings.startGame}</button>
-            ${atGameLimit
-              ? `<p class="wg-muted">${formatString(this.strings.sessionGameLimitReached, { max: maxGames })}</p>`
-              : !canStart
-                ? `<p class="wg-muted">${formatString(this.strings.needMorePlayers, { required: MIN_PLAYERS_TO_START, current: members.length })}</p>`
-                : ''}
-          </div>
-        ` : ''}
-        ${!isAdmin ? `<p class="wg-muted">${this.strings.waitingForAdmin}</p>` : ''}
-        <button type="button" class="wg-btn wg-btn--icon wg-btn-secondary" data-action="leave-waiting" aria-label="${this.escapeAttr(this.strings.leaveGameAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.leaveGame}</button>
-        ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
-        <div class="wg-live" data-live aria-live="polite">${this.strings.waitingRoom}</div>
+      <h1 class="wg-title">${isAdmin ? this.strings.adminWaitingRoom : this.strings.waitingRoom}</h1>
+      ${isAdmin ? `<p class="wg-admin-banner">${formatString(this.strings.adminHint, { required: MIN_PLAYERS_TO_START })}</p>` : ''}
+      <div class="wg-game-id-card">
+        <p class="wg-label">${this.strings.shareGameId}</p>
+        <p class="wg-game-id-value" data-autofocus tabindex="-1">${session.id ?? '—'}</p>
+        <button type="button" class="wg-btn wg-btn--icon" data-action="copy-game-id" aria-label="${this.escapeAttr(this.strings.copyGameIdAria)}" ${this.loading ? 'disabled' : ''}>
+          ${this.copiedGameId ? this.strings.copiedGameId : this.strings.copyGameId}
+        </button>
       </div>
+      ${progressHtml}
+      <div class="wg-section">
+        <p class="wg-label">${this.strings.members} (${members.length}/${MIN_PLAYERS_TO_START})</p>
+        <ul class="wg-member-list">
+          ${members.length === 0
+            ? `<li class="wg-muted">${this.strings.noMembers}</li>`
+            : members
+                .map((m) =>
+                  this.renderLobbyMemberRow(m, members, this.canKickSessionMember(m, session)),
+                )
+                .join('')}
+        </ul>
+      </div>
+      ${isAdmin ? `
+        <div class="wg-start-block">
+          <button type="button" class="wg-btn wg-btn--icon wg-btn--start" data-action="start" aria-label="${this.escapeAttr(this.strings.startGameAria)}" ${startDisabled ? 'disabled' : ''}>${this.strings.startGame}</button>
+          ${atGameLimit
+            ? `<p class="wg-muted">${formatString(this.strings.sessionGameLimitReached, { max: maxGames })}</p>`
+            : !canStart
+              ? `<p class="wg-muted">${formatString(this.strings.needMorePlayers, { required: MIN_PLAYERS_TO_START, current: members.length })}</p>`
+              : ''}
+        </div>
+      ` : ''}
+      ${!isAdmin ? `<p class="wg-muted">${this.strings.waitingForAdmin}</p>` : ''}
+      <button type="button" class="wg-btn wg-btn--icon wg-btn-secondary" data-action="leave-waiting" aria-label="${this.escapeAttr(this.strings.leaveGameAria)}" ${this.loading ? 'disabled' : ''}>${this.strings.leaveGame}</button>
+      ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
+      <div class="wg-live" data-live aria-live="polite">${this.strings.waitingRoom}</div>
     `;
   }
 
@@ -1566,59 +1630,57 @@ export class WordGameApp {
     });
 
     return `
-      <div class="wg-root">
-        ${this.renderGameHeader(game)}
-        ${this.myWord && !isLobby && !isFinished ? `
-          <div class="wg-section wg-word-panel">
-            <p class="wg-word-line">
-              <span class="wg-word-line__label">${this.strings.yourWord}</span>
-              <span class="wg-word-line__value">${this.escapeHtml(this.myWord)}</span>
-            </p>
-            ${isImpostorWordType(this.myWordType ?? undefined) ? `
-              <p class="wg-impostor-hint">${this.escapeHtml(this.strings.youAreImpostor)}</p>
-            ` : ''}
-          </div>
-        ` : ''}
-        ${isFinished && (this.revealedImposedWord || this.revealedAuthenticWord) ? `
-          <div class="wg-section wg-word-panel">
-            ${this.revealedImposedWord ? `
-              <p class="wg-word-line">
-                <span class="wg-word-line__label">${this.strings.impostorWord}</span>
-                <span class="wg-word-line__value">${this.escapeHtml(this.revealedImposedWord)}</span>
-              </p>
-            ` : ''}
-            ${this.revealedAuthenticWord ? `
-              <p class="wg-word-line">
-                <span class="wg-word-line__label">${this.strings.crewWord}</span>
-                <span class="wg-word-line__value">${this.escapeHtml(this.revealedAuthenticWord)}</span>
-              </p>
-            ` : ''}
-          </div>
-        ` : ''}
-        ${isFinished && this.lobbySession ? this.renderSessionScoreboard(this.lobbySession) : ''}
-        <div class="wg-section${canVote ? ' wg-vote-panel' : ''}">
-          <p class="wg-label">${this.strings.members}</p>
-          ${canVote && (game.voteResetCount ?? 0) > 0 ? `<p class="wg-muted">${this.strings.voteTieHint}</p>` : ''}
-          <ul class="wg-member-list${canVote ? ' wg-member-list--voting' : ''}">
-            ${members.length === 0 ? `<li class="wg-muted">${this.strings.noMembers}</li>` : members.map((m) =>
-              this.renderMemberRow(m, members, {
-                votingMode: canVote,
-                showVoteButton: canVote && isVoteSelectableMember(m, this.getCurrentUserId()),
-                confirmPending: m.userId === this.pendingVoteUserId,
-                showActiveTurn: isPlaying,
-                activeTurnUserId: currentTurnUserId,
-                showKickButton: canKickMembers && canKickMember(m, game, this.getCurrentUserId()),
-                showOffline,
-                showImpostor: Boolean(impostorUserId && m.userId === impostorUserId),
-              }),
-            ).join('')}
-          </ul>
-          ${canVote ? this.renderVoteConfirmPanel(members) : ''}
+      ${this.renderGameHeader(game)}
+      ${this.myWord && !isLobby && !isFinished ? `
+        <div class="wg-section wg-word-panel">
+          <p class="wg-word-line">
+            <span class="wg-word-line__label">${this.strings.yourWord}</span>
+            <span class="wg-word-line__value">${this.escapeHtml(this.myWord)}</span>
+          </p>
+          ${isImpostorWordType(this.myWordType ?? undefined) ? `
+            <p class="wg-impostor-hint">${this.escapeHtml(this.strings.youAreImpostor)}</p>
+          ` : ''}
         </div>
-        ${gameActions}
-        ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
-        <div class="wg-live" data-live aria-live="polite">${this.escapeHtml(game.status ?? '')}</div>
+      ` : ''}
+      ${isFinished && (this.revealedImposedWord || this.revealedAuthenticWord) ? `
+        <div class="wg-section wg-word-panel">
+          ${this.revealedImposedWord ? `
+            <p class="wg-word-line">
+              <span class="wg-word-line__label">${this.strings.impostorWord}</span>
+              <span class="wg-word-line__value">${this.escapeHtml(this.revealedImposedWord)}</span>
+            </p>
+          ` : ''}
+          ${this.revealedAuthenticWord ? `
+            <p class="wg-word-line">
+              <span class="wg-word-line__label">${this.strings.crewWord}</span>
+              <span class="wg-word-line__value">${this.escapeHtml(this.revealedAuthenticWord)}</span>
+            </p>
+          ` : ''}
+        </div>
+      ` : ''}
+      ${isFinished && this.lobbySession ? this.renderSessionScoreboard(this.lobbySession) : ''}
+      <div class="wg-section${canVote ? ' wg-vote-panel' : ''}">
+        <p class="wg-label">${this.strings.members}</p>
+        ${canVote && (game.voteResetCount ?? 0) > 0 ? `<p class="wg-muted">${this.strings.voteTieHint}</p>` : ''}
+        <ul class="wg-member-list${canVote ? ' wg-member-list--voting' : ''}">
+          ${members.length === 0 ? `<li class="wg-muted">${this.strings.noMembers}</li>` : members.map((m) =>
+            this.renderMemberRow(m, members, {
+              votingMode: canVote,
+              showVoteButton: canVote && isVoteSelectableMember(m, this.getCurrentUserId()),
+              confirmPending: m.userId === this.pendingVoteUserId,
+              showActiveTurn: isPlaying,
+              activeTurnUserId: currentTurnUserId,
+              showKickButton: canKickMembers && canKickMember(m, game, this.getCurrentUserId()),
+              showOffline,
+              showImpostor: Boolean(impostorUserId && m.userId === impostorUserId),
+            }),
+          ).join('')}
+        </ul>
+        ${canVote ? this.renderVoteConfirmPanel(members) : ''}
       </div>
+      ${gameActions}
+      ${this.loading ? `<p class="wg-muted"><span class="wg-spinner"></span>${this.strings.loading}</p>` : ''}
+      <div class="wg-live" data-live aria-live="polite">${this.escapeHtml(game.status ?? '')}</div>
     `;
   }
 
@@ -1626,6 +1688,7 @@ export class WordGameApp {
     this.container.querySelector('[data-action="retry"]')?.addEventListener('click', () => {
       this.clearError();
       this.screen = 'home';
+      this.appTab = 'play';
       this.render();
     });
 
@@ -1635,6 +1698,23 @@ export class WordGameApp {
       this.clearGameSession();
       this.screen = 'home';
       this.homeView = 'player';
+      this.appTab = 'play';
+      this.render();
+    });
+
+    this.container.querySelector('[data-action="app-tab-play"]')?.addEventListener('click', () => {
+      if (this.appTab === 'play') {
+        return;
+      }
+      this.appTab = 'play';
+      this.render();
+    });
+
+    this.container.querySelector('[data-action="app-tab-rules"]')?.addEventListener('click', () => {
+      if (this.appTab === 'rules') {
+        return;
+      }
+      this.appTab = 'rules';
       this.render();
     });
 
