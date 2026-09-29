@@ -135,9 +135,10 @@ Non-interactive: `./scripts/run-podman-local.sh up`
 | `Cors:AllowedOrigins` | Allowed browser origins |
 | `Realtime:Transport` | `SignalR` (default) |
 | `Realtime:BackplaneType` | `Redis` (production) or `InMemory` (development) |
-| `Realtime:Backplane:ConnectionString` | Redis connection string |
+| `Realtime:Backplane:ConnectionString` | Redis connection string (also used for shared stores when `Stores:Type=Redis`) |
 | `Realtime:Backplane:ChannelName` | Pub/sub channel (default `wordgamebff_backplane`) |
-| `Stores:ConnectionString` | Postgres for shared BFF state (required when `Stores:Type=PostgreSQL`) |
+| `Stores:Type` | `Redis` (production), `InMemory` (development), or `PostgreSQL` (legacy) |
+| `Stores:ConnectionString` | Optional Redis override, or Postgres Npgsql when `Stores:Type=PostgreSQL` |
 
 Environment variable form: `Section__Key` (e.g. `SESSION__SIGNINGKEY`).
 
@@ -272,7 +273,7 @@ Returns `429` with `Retry-After` header. Tuned for shared-NAT party games (~15 p
 - **Embed CDN:** Netlify — [frontend/HOST-INTEGRATION.md](frontend/HOST-INTEGRATION.md), `frontend/netlify.toml`, and Actions **Deploy frontend**
 - **wordgames:** independent Fly app; `GameApi__BaseUrl` is set in [`fly.toml`](fly.toml) `[env]`
 
-Production uses Redis for the SignalR backplane and Postgres for shared BFF state (schema `bff`: `bff.store`, `bff.game_revisions`). Multi-instance requires `Stores__Type=PostgreSQL`, `Stores__ConnectionString`, and `Realtime__BackplaneType=Redis`.
+Production uses Redis for both the SignalR backplane and shared BFF state (PoW, session revocation, revisions, presence, self-votes). Multi-instance requires `Stores__Type=Redis` and `Realtime__BackplaneType=Redis` with `REALTIME__BACKPLANE__CONNECTIONSTRING`.
 
 ## Tests
 

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Equinoctial.Redis;
 using WordGameBff.Application.Auth;
 using WordGameBff.Application.Configuration;
 using WordGameBff.Application.Games;
@@ -12,6 +13,7 @@ using WordGameBff.Infrastructure.Realtime;
 using WordGameBff.Infrastructure.Realtime.Redis;
 using WordGameBff.Infrastructure.Realtime.SignalR;
 using WordGameBff.Infrastructure.Storage;
+using WordGameBff.Infrastructure.Storage.Redis;
 
 namespace WordGameBff.Infrastructure;
 
@@ -37,9 +39,49 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<BackplaneEnvelopeDispatcher>();
 
         var usePostgresStores = StoreConnectionResolver.UsePostgreSqlStores(configuration);
+        var useRedisStores = StoreConnectionResolver.UseRedisStores(configuration);
         var storeConnectionString = StoreConnectionResolver.Resolve(configuration);
+        var redisConnectionString = StoreConnectionResolver.ResolveRedisConnectionString(configuration);
 
-        if (usePostgresStores)
+        var realtime = configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>() ?? new RealtimeOptions();
+        var useRedisBackplane = string.Equals(realtime.BackplaneType, "Redis", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(realtime.Backplane.ConnectionString);
+
+        if (useRedisStores || useRedisBackplane)
+        {
+            if (string.IsNullOrWhiteSpace(redisConnectionString) && useRedisStores)
+            {
+                throw new InvalidOperationException(
+                    "Stores:Type is Redis but no Redis connection string is configured. Set Realtime:Backplane:ConnectionString (or Stores:ConnectionString).");
+            }
+
+            var sharedRedisConnection = !string.IsNullOrWhiteSpace(redisConnectionString)
+                ? redisConnectionString
+                : realtime.Backplane.ConnectionString;
+
+            if (string.IsNullOrWhiteSpace(sharedRedisConnection))
+            {
+                throw new InvalidOperationException(
+                    "Production requires Realtime:BackplaneType=Redis with a configured connection string.");
+            }
+
+            services.AddSingleton(sp =>
+            {
+                _ = sp;
+                return RedisClient.ConnectAsync(sharedRedisConnection).GetAwaiter().GetResult();
+            });
+            services.AddSingleton<IBffRedisDatabase, EquinoctialBffRedisDatabase>();
+        }
+
+        if (useRedisStores)
+        {
+            services.AddSingleton<IChallengeStore, RedisChallengeStore>();
+            services.AddSingleton<ISessionRevocationStore, RedisSessionRevocationStore>();
+            services.AddSingleton<IGameRevisionStore, RedisGameRevisionStore>();
+            services.AddSingleton<IGameConnectionRegistry, RedisGameConnectionRegistry>();
+            services.AddSingleton<IGameSelfVoteStore, RedisGameSelfVoteStore>();
+        }
+        else if (usePostgresStores)
         {
             if (string.IsNullOrWhiteSpace(storeConnectionString))
             {
@@ -70,25 +112,18 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHttpClient<IGameApiClient, GameApiClient>();
         services.AddHostedService<GameApiWarmupService>();
 
-        var realtime = configuration.GetSection(RealtimeOptions.SectionName).Get<RealtimeOptions>() ?? new RealtimeOptions();
         if (string.Equals(realtime.Transport, "SignalR", StringComparison.OrdinalIgnoreCase))
         {
             services.AddSingleton<IGameRealtimeTransport, SignalRGameRealtimeTransport>();
         }
 
-        var useRedisBackplane = string.Equals(realtime.BackplaneType, "Redis", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrWhiteSpace(realtime.Backplane.ConnectionString);
-
         if (useRedisBackplane)
         {
             services.AddSingleton<IRedisBackplaneMessaging>(sp =>
             {
-                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<RealtimeOptions>>().Value;
+                var client = sp.GetRequiredService<RedisClient>();
                 var logger = sp.GetRequiredService<ILogger<EquinoctialRedisBackplaneMessaging>>();
-                return EquinoctialRedisBackplaneMessaging
-                    .ConnectAsync(options.Backplane.ConnectionString, logger)
-                    .GetAwaiter()
-                    .GetResult();
+                return new EquinoctialRedisBackplaneMessaging(client, logger, ownsClient: false);
             });
             services.AddSingleton<IGameRealtimeBackplane, RedisGameRealtimeBackplane>();
             services.AddHostedService<RedisBackplaneListener>();

@@ -7,11 +7,16 @@ public sealed class EquinoctialRedisBackplaneMessaging : IRedisBackplaneMessagin
 {
     private readonly RedisClient _client;
     private readonly ILogger<EquinoctialRedisBackplaneMessaging> _logger;
+    private readonly bool _ownsClient;
 
-    private EquinoctialRedisBackplaneMessaging(RedisClient client, ILogger<EquinoctialRedisBackplaneMessaging> logger)
+    public EquinoctialRedisBackplaneMessaging(
+        RedisClient client,
+        ILogger<EquinoctialRedisBackplaneMessaging> logger,
+        bool ownsClient = false)
     {
         _client = client;
         _logger = logger;
+        _ownsClient = ownsClient;
     }
 
     public static async Task<EquinoctialRedisBackplaneMessaging> ConnectAsync(
@@ -21,7 +26,7 @@ public sealed class EquinoctialRedisBackplaneMessaging : IRedisBackplaneMessagin
     {
         _ = cancellationToken;
         var client = await RedisClient.ConnectAsync(connectionString);
-        return new EquinoctialRedisBackplaneMessaging(client, logger);
+        return new EquinoctialRedisBackplaneMessaging(client, logger, ownsClient: true);
     }
 
     public async Task PublishAsync(string channel, string payload, CancellationToken cancellationToken = default)
@@ -77,6 +82,9 @@ public sealed class EquinoctialRedisBackplaneMessaging : IRedisBackplaneMessagin
 
     public async ValueTask DisposeAsync()
     {
-        await _client.DisposeAsync();
+        if (_ownsClient)
+        {
+            await _client.DisposeAsync();
+        }
     }
 }
