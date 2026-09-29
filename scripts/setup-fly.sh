@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-time Fly bootstrap for WordGameBff: app + Postgres + Redis + credential secrets.
+# One-time Fly bootstrap for WordGameBff: app + Redis + credential secrets.
+# Shared BFF state and SignalR backplane both use Redis (Stores__Type=Redis in fly.toml).
 # Non-secrets (URLs, CORS, Authority, BackplaneType) live in fly.toml [env] — edit there, not here.
 #
 # Usage:
@@ -14,7 +15,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.fly"
 APP_NAME="${FLY_APP_NAME:-wordgamebff}"
-PG_NAME="${FLY_PG_NAME:-wordgamebff-db}"
 REGION="${FLY_REGION:-iad}"
 
 RED='\033[0;31m'
@@ -48,40 +48,11 @@ app_exists() {
   fly status -a "$APP_NAME" >/dev/null 2>&1
 }
 
-pg_exists() {
-  fly status -a "$PG_NAME" >/dev/null 2>&1
-}
-
-resolve_stores_npgsql() {
-  local cs="${STORES__CONNECTIONSTRING:-}"
-  if [[ -n "$cs" && "$cs" != *"YOUR_HOST"* && "$cs" != *"YOUR_PASSWORD"* ]]; then
-    if [[ "$cs" != *"SSL Mode"* && "$cs" != *"Ssl Mode"* ]]; then
-      cs="${cs};SSL Mode=Require"
-    fi
-    printf '%s' "$cs"
-    return
-  fi
-
-  if [[ -z "${FLY_PG_HOST:-}" || -z "${FLY_PG_DB:-}" || -z "${FLY_PG_USER:-}" || -z "${FLY_PG_PASSWORD:-}" ]]; then
-    error "Set STORES__CONNECTIONSTRING (Npgsql) or FLY_PG_HOST/DB/USER/PASSWORD in .env.fly"
-    error "Get values via: fly postgres db list -a ${PG_NAME}  (or Fly Postgres dashboard)"
-    error "Do NOT use Fly attach DATABASE_URL (postgres:// URI) — same as CustomAuth."
-    exit 1
-  fi
-
-  printf 'Host=%s;Port=%s;Database=%s;Username=%s;Password=%s;SSL Mode=Require' \
-    "$FLY_PG_HOST" \
-    "${FLY_PG_PORT:-5432}" \
-    "$FLY_PG_DB" \
-    "$FLY_PG_USER" \
-    "$FLY_PG_PASSWORD"
-}
-
 resolve_redis() {
   local cs="${REALTIME__BACKPLANE__CONNECTIONSTRING:-}"
   if [[ -z "$cs" || "$cs" == *"YOUR_REDIS"* || "$cs" == *"YOUR_PASSWORD"* ]]; then
     error "Set REALTIME__BACKPLANE__CONNECTIONSTRING (Equinoctial Redis form) in .env.fly"
-    error "Example: host=YOUR_REDIS_HOST;port=6379;password=YOUR_PASSWORD"
+    error "Example: host=YOUR_REDIS_HOST;port=6379;username=default;password=YOUR_PASSWORD"
     error "Provision with: fly redis create   (Upstash) or any Redis reachable from the app"
     exit 1
   fi
@@ -98,8 +69,7 @@ main() {
     exit 1
   fi
 
-  local npgsql redis_cs
-  npgsql="$(resolve_stores_npgsql)"
+  local redis_cs
   redis_cs="$(resolve_redis)"
 
   local session_key="${SESSION__SIGNINGKEY:-}"
@@ -120,21 +90,8 @@ main() {
     fly apps create "$APP_NAME"
   fi
 
-  if pg_exists; then
-    info "Postgres ${PG_NAME} already exists"
-  else
-    info "Creating Postgres ${PG_NAME} in ${REGION}"
-    fly postgres create --name "$PG_NAME" --region "$REGION"
-  fi
-
-  info "Attaching Postgres ${PG_NAME} to ${APP_NAME} (may set unused DATABASE_URL — ignore it)"
-  if ! fly postgres attach "$PG_NAME" --app "$APP_NAME" 2>/dev/null; then
-    warn "Attach skipped or already attached — continuing"
-  fi
-
-  info "Setting Fly secrets (credentials only; URLs/CORS/BackplaneType are in fly.toml)"
+  info "Setting Fly secrets (credentials only; URLs/CORS/BackplaneType/Stores__Type are in fly.toml)"
   fly secrets set -a "$APP_NAME" \
-    "STORES__CONNECTIONSTRING=${npgsql}" \
     "REALTIME__BACKPLANE__CONNECTIONSTRING=${redis_cs}" \
     "SESSION__SIGNINGKEY=${session_key}" \
     "CUSTOMAUTH__CLIENTID=${CUSTOMAUTH__CLIENTID}" \
@@ -144,8 +101,7 @@ main() {
   info "Bootstrap complete."
   echo
   echo "Next steps:"
-  echo "  1. After first Postgres boot, optionally run scripts/migrate-bff-postgres-after-redis.sql"
-  echo "     (conn indexes). Schema initializer also creates them on new environments."
+  echo "  1. Ensure Upstash Redis exists (fly redis create / fly redis list) and the secret matches."
   echo "  2. Edit fly.toml [env] CORS / GameApi__BaseUrl if still placeholders, then commit."
   echo "  3. Create a deploy token and add GitHub Actions secrets:"
   echo "       fly tokens create deploy -a ${APP_NAME} -x 999999h"

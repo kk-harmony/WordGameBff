@@ -152,17 +152,22 @@ public sealed class StoreOptionsValidator : IValidateOptions<StoreOptions>
             return ValidateOptionsResult.Success;
         }
 
-        if (!string.Equals(options.Type, "PostgreSQL", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(options.Type, "Redis", StringComparison.OrdinalIgnoreCase))
         {
-            return ValidateOptionsResult.Fail("Stores:Type must be PostgreSQL in production.");
+            return ValidateOptionsResult.Success;
         }
 
-        if (string.IsNullOrWhiteSpace(options.ConnectionString))
+        if (string.Equals(options.Type, "PostgreSQL", StringComparison.OrdinalIgnoreCase))
         {
-            return ValidateOptionsResult.Fail("Stores:ConnectionString is required when Stores:Type is PostgreSQL.");
+            if (string.IsNullOrWhiteSpace(options.ConnectionString))
+            {
+                return ValidateOptionsResult.Fail("Stores:ConnectionString is required when Stores:Type is PostgreSQL.");
+            }
+
+            return ValidateOptionsResult.Success;
         }
 
-        return ValidateOptionsResult.Success;
+        return ValidateOptionsResult.Fail("Stores:Type must be Redis (or PostgreSQL) in production.");
     }
 }
 
