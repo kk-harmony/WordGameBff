@@ -71,7 +71,8 @@ Manual alternative:
 
 ```bash
 fly deploy --remote-only
-# fly.toml already has min_machines_running = 2 and [[vm]] memory = "512mb"
+# fly.toml: min_machines_running = 1, [[vm]] memory = "512mb"
+# After deploy, ensure only one machine remains: fly scale count 1 -a wordgamebff
 ```
 
 ### Upstream wordgames-api must stay warm
@@ -82,21 +83,16 @@ app scales to zero, the first request after idle pays a JVM cold start — measu
 at ~20s versus ~0.1s warm — which surfaces as slow joins and stalled realtime
 updates.
 
-Keep at least one upstream machine from stopping:
+`wordgames-api` `fly.toml` is set for one warm machine in `iad` (same region as
+the BFF): `min_machines_running = 1`, `auto_stop_machines = "suspend"`. After a
+deploy, confirm placement and destroy any leftover ORD machines:
 
 ```bash
-# Always-on machine (equivalent to min_machines_running = 1)
-fly machine update <machine-id> -a wordgames-api --autostop=off --autostart
-
-# Remaining machines: suspend resumes far faster than a cold stop for a JVM
-fly machine update <machine-id> -a wordgames-api --autostop=suspend --autostart
-
-fly machine list -a wordgames-api   # expect one started, checks 1/1
+fly machine list -a wordgames-api   # expect iad, one started / suspend-capable
+# If an ORD machine remains after region change:
+#   fly machine clone <iad-or-source-id> --region iad   # if needed
+#   fly machine destroy <ord-machine-id> --force
 ```
-
-Prefer setting `min_machines_running = 1` and `auto_stop_machines = "suspend"` in
-that app's own `fly.toml` so the setting survives its deploys. Co-locating it in
-`iad` also removes a cross-region hop, since the BFF runs there.
 
 ## 5. Verify
 
